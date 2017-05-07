@@ -584,7 +584,7 @@ Function Send-AzureBlob
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [String]$BlobType="BlockBlob",
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
-        [String]$ContentType,  
+        [String]$ContentType,
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [System.Collections.IDictionary]$Metadata,              
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
@@ -1121,7 +1121,7 @@ Function Get-AzureBlobMetadata
                 "x-ms-date"=[DateTime]::UtcNow.ToString('R');
                 "x-ms-version"=$ApiVersion;
             }
-            $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -Headers $BlobHeaders -AccessKey $AccessKey
             $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
             $RequestParams.Add('Headers',$BlobHeaders)
             $Result=InvokeAzureStorageRequest @RequestParams
@@ -1176,7 +1176,7 @@ Function Get-AzureBlobProperties
                 "x-ms-date"=[DateTime]::UtcNow.ToString('R');
                 "x-ms-version"=$ApiVersion;
             }
-            $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -Headers $BlobHeaders -AccessKey $AccessKey
             $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
             $RequestParams.Add('Headers',$BlobHeaders)
             $Result=InvokeAzureStorageRequest @RequestParams
@@ -1231,12 +1231,13 @@ Function Set-AzureBlobMetadata
                 $StorageAccountName=$item.Host.Split('.')|Select-Object -First 1
             }
             $BlobUriBld=New-Object System.UriBuilder($item)
+            $BlobUriBld.Query="comp=metadata"
             $RequestParams=@{
                 Uri=$BlobUriBld.Uri;
-                Method='GET';
+                Method='PUT';
                 ReturnHeaders=$true;
             }
-            $BlobHeaders= @{
+            $BlobHeaders= [ordered]@{
                 "x-ms-date"=[DateTime]::UtcNow.ToString('R');
             }
             foreach($MetaKey in ($Metadata.Keys|Sort-Object))
@@ -1244,7 +1245,7 @@ Function Set-AzureBlobMetadata
                 $BlobHeaders.Add("x-ms-meta-$MetaKey",$Metadata[$MetaKey])
             }
             $BlobHeaders.Add("x-ms-version",$ApiVersion)            
-            $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $SasToken=New-SASToken -Verb PUT -Resource $BlobUriBld.Uri -Headers $BlobHeaders -AccessKey $AccessKey
             $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
             $RequestParams.Add('Headers',$BlobHeaders)
             $Result=InvokeAzureStorageRequest @RequestParams
@@ -1305,7 +1306,7 @@ Function New-AzureBlobSnapshot
                 "x-ms-date"=[DateTime]::UtcNow.ToString('R');
                 "x-ms-version"=$ApiVersion;
             }
-            $SasToken=New-SASToken -Verb PUT -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $SasToken=New-SASToken -Verb PUT -Resource $BlobUriBld.Uri -Headers $BlobHeaders -AccessKey $AccessKey
             $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
             $RequestParams.Add('Headers',$BlobHeaders)
             $Result=InvokeAzureStorageRequest @RequestParams
@@ -1373,7 +1374,7 @@ Function Remove-AzureBlob
                 "x-ms-date"=[DateTime]::UtcNow.ToString('R');
                 "x-ms-version"=$ApiVersion;
             }
-            if($LeaseId -ne [Guid]::Empty)
+            if($LeaseId -ne $null -and $LeaseId -ne [Guid]::Empty)
             {
                 $BlobHeaders.Add('x-ms-lease-id',$LeaseId)
             }
@@ -1385,7 +1386,7 @@ Function Remove-AzureBlob
             {
                 $BlobHeaders.Add('x-ms-delete-snapshots','only')
             }
-            $SasToken=New-SASToken -Verb DELETE -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $SasToken=New-SASToken -Verb DELETE -Resource $BlobUriBld.Uri -Headers $BlobHeaders -AccessKey $AccessKey
             $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
             $RequestParams.Add('Headers',$BlobHeaders)
             $Result=InvokeAzureStorageRequest @RequestParams
