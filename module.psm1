@@ -13,14 +13,16 @@ Function SignRequestString
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true)]
         [String]$SigningKey
     )
-
-    $KeyBytes = [System.Convert]::FromBase64String($SigningKey)
-    $HMAC = New-Object System.Security.Cryptography.HMACSHA256
-    $HMAC.Key = $KeyBytes
-    $UnsignedBytes = [System.Text.Encoding]::UTF8.GetBytes($StringToSign)
-    $KeyHash = $HMAC.ComputeHash($UnsignedBytes)
-    $SignedString=[System.Convert]::ToBase64String($KeyHash)
-    Write-Output $SignedString
+    PROCESS
+    {
+        $KeyBytes = [System.Convert]::FromBase64String($SigningKey)
+        $HMAC = New-Object System.Security.Cryptography.HMACSHA256
+        $HMAC.Key = $KeyBytes
+        $UnsignedBytes = [System.Text.Encoding]::UTF8.GetBytes($StringToSign)
+        $KeyHash = $HMAC.ComputeHash($UnsignedBytes)
+        $SignedString=[System.Convert]::ToBase64String($KeyHash)
+        Write-Output $SignedString        
+    }
 }
 
 Function GetTokenStringToSign
@@ -289,11 +291,6 @@ Function New-SASToken
         [ValidateSet('GET','PUT','DELETE')]
         [string]
         $Verb="GET",
-        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
-        [datetime]
-        $Date=([System.DateTime]::UtcNow),
-        [string]
-        $TokenVersion = "2016-05-31",
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true)]
         [System.Uri]
         $Resource,
@@ -325,13 +322,24 @@ Function New-SASToken
         [System.Collections.IDictionary]
         $Headers
     )
-    $StringToSign = GetTokenStringToSign -Verb $Verb -Resource $Resource `
-        -ContentLength $ContentLength -ContentLanguage $ContentLanguage -ContentEncoding $ContentEncoding `
-        -ContentType $ContentType -ContentMD5 $ContentMD5 `
-        -RangeStart $RangeStart -RangeEnd $RangeEnd -Headers $Headers
-    Write-Verbose "[New-SASToken] String to Sign:$StringToSign"
-    $SharedAccessSignature=SignRequestString -StringToSign $StringToSign -SigningKey $AccessKey
-    Write-Output $SharedAccessSignature
+    PROCESS
+    {
+        $SigningElements=@{
+            Verb=$Verb;
+            Resource=$Resource;
+            ContentLength=$ContentLength;
+            ContentLanguage=$ContentLanguage;
+            ContentEncoding=$ContentEncoding;
+            ContentType=$ContentType;
+            RangeStart=$RangeStart;
+            RangeEnd=$RangeEnd;
+            Headers=$Headers;
+        }
+        $StringToSign = GetTokenStringToSign @SigningElements
+        Write-Verbose "[New-SASToken] String to Sign:$StringToSign"
+        $SharedAccessSignature=SignRequestString -StringToSign $StringToSign -SigningKey $AccessKey
+        Write-Output $SharedAccessSignature        
+    }
 }
 
 Function Get-AzureBlobContainerMetadata
@@ -398,7 +406,6 @@ Function Set-AzureBlobContainerMetadata
         [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true)]
         [String]$ApiVersion = "2016-05-31"
     )
-    $AccessDate = [DateTime]::UtcNow
     $BlobFQDN = "https://$StorageAccountName.$StorageAccountDomain"
     #Build the uri..
     if ($UseHttp.IsPresent)
@@ -408,8 +415,13 @@ Function Set-AzureBlobContainerMetadata
     $BlobUriBld = New-Object System.UriBuilder($BlobFQDN)
     $BlobUriBld.Path = "$ContainerName"
     $BlobUriBld.Query = "restype=container&comp=metadata"
+    $RequestParams=@{
+        Method='PUT';
+        Uri=$BlobUriBld.Uri;
+        ReturnHeaders=$true;
+    }    
     $BlobHeaders = [ordered]@{
-        "x-ms-date" = $AccessDate.ToString('R');
+        "x-ms-date" = [DateTime]::UtcNow.ToString('R');
     }
     foreach($MetaKey in ($Metadata.Keys|Sort-Object))
     {
@@ -418,7 +430,8 @@ Function Set-AzureBlobContainerMetadata
     $BlobHeaders.Add("x-ms-version",$ApiVersion)
     $SasToken=New-SASToken -Verb PUT -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
     $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
-    $Result = InvokeAzureStorageRequest -Method Put -Uri $BlobUriBld.Uri -Headers $BlobHeaders -ReturnHeaders
+    $RequestParams.Add('Headers',$BlobHeaders)
+    $Result = InvokeAzureStorageRequest @RequestParams
 }
 
 Function Get-AzureBlobContainerBlobs
@@ -471,7 +484,7 @@ Function Get-AzureBlobContainerBlobs
     }
 }
 
-Function Get-AzureBlob
+Function Copy-AzureBlob
 {
     [CmdletBinding(DefaultParameterSetName='default')]
     param
@@ -512,24 +525,26 @@ Function Get-AzureBlob
         }
         foreach ($item in $Uri)
         {
-            $StorageAccountName=$($item.Host.Split('.')|Select-Object -First 1)
+            if([String]::IsNullOrEmpty($StorageAccountName))
+            {
+                $StorageAccountName=$($item.Host.Split('.')|Select-Object -First 1)                
+            }
             $DestinationFile=Join-Path $Destination $(Split-Path $item -Leaf)
-            Write-Verbose "[Get-AzureStorageBlob] Requesting Azure Storage Blob $item from Storage Account:$StorageAccountName"
+            Write-Verbose "[Copy-AzureBlob] Requesting Azure Storage Blob $item from Storage Account:$StorageAccountName"
             $RequestParams=@{
                 Uri=$item;
                 Destination=$DestinationFile;
             }
             if ($PSCmdlet.ParameterSetName -in 'default','wordy')
             {
-                $AccessDate=[DateTime]::UtcNow
                 $BlobHeaders=@{
-                    'x-ms-date'=$AccessDate.ToString('R');
+                    'x-ms-date'=[DateTime]::UtcNow.ToString('R');
                     'x-ms-version'=$ApiVersion;
                 }
                 $SasToken=New-SASToken -Verb GET -Resource $item -AccessKey $AccessKey -Headers $BlobHeaders
                 $BlobHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($SasToken)")
                 $RequestParams.Add('Headers',$BlobHeaders)
-                Write-Verbose "[Get-AzureStorageBlob] Using SharedKey $SasToken"
+                Write-Verbose "[Copy-AzureBlob] Using SharedKey $SasToken"
             }
             DownloadBlob @RequestParams
         }
@@ -932,4 +947,288 @@ Function Set-AzureBlobContainerLease
     $RequestParams.Add('Headers',$BlobHeaders)
     $Result = InvokeAzureStorageRequest @RequestParams
     Write-Output $Result
+}
+
+Function Get-AzureBlobMetadata
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Uri[]]$InputObject,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ContainerName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$BlobName,        
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountDomain="blob.core.windows.net",
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$AccessKey,
+        [Parameter(Mandatory=$false,ParameterSetName='indirect')]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ApiVersion="2016-05-31"
+    )
+    PROCESS
+    {
+        if($PSCmdlet.ParameterSetName -eq 'indirect')
+        {
+            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+        }
+        foreach($item in $InputObject)
+        {
+            if([String]::IsNullOrEmpty($StorageAccountName))
+            {
+                $StorageAccountName=$item.Host.Split('.')|Select-Object -First 1
+            }
+            $BlobUriBld=New-Object System.UriBuilder($item)
+            $BlobUriBld.Query="comp=metadata"
+            $RequestParams=@{
+                Uri=$BlobUriBld.Uri;
+                Method='GET';
+                ReturnHeaders=$true;
+            }
+            $BlobHeaders= @{
+                "x-ms-date"=[DateTime]::UtcNow.ToString('R');
+                "x-ms-version"=$ApiVersion;
+            }
+            $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+            $RequestParams.Add('Headers',$BlobHeaders)
+            $Result=InvokeAzureStorageRequest @RequestParams
+            Write-Output $Result
+        }
+    }
+}
+
+Function Get-AzureBlobProperties
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Uri[]]$InputObject,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ContainerName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$BlobName,        
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountDomain="blob.core.windows.net",
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$AccessKey,
+        [Parameter(Mandatory=$false,ParameterSetName='indirect')]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ApiVersion="2016-05-31"
+    )
+    PROCESS
+    {
+        if($PSCmdlet.ParameterSetName -eq 'indirect')
+        {
+            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+        }
+        foreach($item in $InputObject)
+        {
+            if([String]::IsNullOrEmpty($StorageAccountName))
+            {
+                $StorageAccountName=$item.Host.Split('.')|Select-Object -First 1
+            }
+            $BlobUriBld=New-Object System.UriBuilder($item)
+            $RequestParams=@{
+                Uri=$BlobUriBld.Uri;
+                Method='GET';
+                ReturnHeaders=$true;
+            }
+            $BlobHeaders= @{
+                "x-ms-date"=[DateTime]::UtcNow.ToString('R');
+                "x-ms-version"=$ApiVersion;
+            }
+            $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+            $RequestParams.Add('Headers',$BlobHeaders)
+            $Result=InvokeAzureStorageRequest @RequestParams
+            Write-Output $Result
+        }
+    }
+}
+
+Function Set-AzureBlobMetadata
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Uri[]]$InputObject,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ContainerName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$BlobName,        
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountDomain="blob.core.windows.net",
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true,ParameterSetName='direct')]
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true,ParameterSetName='indirect')]
+        [System.Collections.IDictionary]$Metadata,
+        [Parameter(Mandatory=$false,ParameterSetName='indirect')]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ApiVersion="2016-05-31"
+    )
+
+    PROCESS
+    {
+        if($PSCmdlet.ParameterSetName -eq 'indirect')
+        {
+            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+        }
+        foreach($item in $InputObject)
+        {
+            if([String]::IsNullOrEmpty($StorageAccountName))
+            {
+                $StorageAccountName=$item.Host.Split('.')|Select-Object -First 1
+            }
+            $BlobUriBld=New-Object System.UriBuilder($item)
+            $RequestParams=@{
+                Uri=$BlobUriBld.Uri;
+                Method='GET';
+                ReturnHeaders=$true;
+            }
+            $BlobHeaders= @{
+                "x-ms-date"=[DateTime]::UtcNow.ToString('R');
+            }
+            foreach($MetaKey in ($Metadata.Keys|Sort-Object))
+            {
+                $BlobHeaders.Add("x-ms-meta-$MetaKey",$Metadata[$MetaKey])
+            }
+            $BlobHeaders.Add("x-ms-version",$ApiVersion)            
+            $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+            $RequestParams.Add('Headers',$BlobHeaders)
+            $Result=InvokeAzureStorageRequest @RequestParams
+            Write-Output $Result
+        }
+    }
+}
+
+Function New-AzureBlobSnapshot
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Uri[]]$InputObject,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ContainerName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$BlobName,        
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountDomain="blob.core.windows.net",
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$AccessKey,
+        [Parameter(Mandatory=$false,ParameterSetName='indirect')]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ApiVersion="2016-05-31"
+    )
+    PROCESS
+    {
+        if($PSCmdlet.ParameterSetName -eq 'indirect')
+        {
+            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+        }
+        foreach($item in $InputObject)
+        {
+            if([String]::IsNullOrEmpty($StorageAccountName))
+            {
+                $StorageAccountName=$item.Host.Split('.')|Select-Object -First 1
+            }
+            $BlobUriBld=New-Object System.UriBuilder($item)
+            $BlobUriBld.Query="comp=snapshot"
+            $RequestParams=@{
+                Uri=$BlobUriBld.Uri;
+                Method='PUT';
+                ReturnHeaders=$true;
+            }
+            $BlobHeaders= @{
+                "x-ms-date"=[DateTime]::UtcNow.ToString('R');
+                "x-ms-version"=$ApiVersion;
+            }
+            $SasToken=New-SASToken -Verb PUT -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+            $RequestParams.Add('Headers',$BlobHeaders)
+            $Result=InvokeAzureStorageRequest @RequestParams
+        }
+    }
+}
+
+Function Remove-AzureBlob
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Uri[]]$InputObject,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ContainerName,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$BlobName,        
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$StorageAccountDomain="blob.core.windows.net",
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$AccessKey,
+        [Parameter(Mandatory=$false,ParameterSetName='indirect')]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
+        [String]$ApiVersion="2016-05-31"
+    )
+    PROCESS
+    {
+        if($PSCmdlet.ParameterSetName -eq 'indirect')
+        {
+            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+        }
+        foreach($item in $InputObject)
+        {
+            if([String]::IsNullOrEmpty($StorageAccountName))
+            {
+                $StorageAccountName=$item.Host.Split('.')|Select-Object -First 1
+            }
+            $BlobUriBld=New-Object System.UriBuilder($item)
+            $RequestParams=@{
+                Uri=$BlobUriBld.Uri;
+                Method='DELETE';
+                ReturnHeaders=$true;
+            }
+            $BlobHeaders= @{
+                "x-ms-date"=[DateTime]::UtcNow.ToString('R');
+                "x-ms-version"=$ApiVersion;
+            }
+            $SasToken=New-SASToken -Verb DELETE -Resource $BlobUriBld.Uri -Headers $BlobHeaders
+            $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+            $RequestParams.Add('Headers',$BlobHeaders)
+            $Result=InvokeAzureStorageRequest @RequestParams
+            Write-Output $Result
+        }
+    }
 }
