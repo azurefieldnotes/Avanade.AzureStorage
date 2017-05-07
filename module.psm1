@@ -249,34 +249,47 @@ Function DownloadBlob
     }
 }
 
-Function UploadBlob
+Function GetMd5Hash
 {
     [CmdletBinding()]
     param
     (
-        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-        [System.Uri]$Uri,
-        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true)]
-        [System.Collections.IDictionary]$Headers,
-        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-        [System.IO.FileInfo]
-        $SourceFile,
-        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true)]
-        [int]
-        $BufferSize = 4096
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true)]
+        [System.IO.FileInfo[]]$InputObject
     )
-
-    try
+    BEGIN
     {
-        
+        $Hasher= New-Object System.Security.Cryptography.MD5CryptoServiceProvider
     }
-    catch [System.Net.WebException], [System.Exception]
+    PROCESS
     {
-        throw $_
+        foreach ($item in $InputObject)
+        {
+            $FileStream=[System.IO.Stream]::Null
+            try
+            {
+                Write-Verbose "[GetMd5Hash] Calculating MD5 Hash for $($item.FullName)"
+                $FileStream=$item.OpenRead()
+                $Md5Hash=$Hasher.ComputeHash($FileStream)
+                Write-Output $([System.Convert]::ToBase64String($Md5Hash))
+            }
+            catch
+            {
+                throw $_
+            }
+            finally
+            {
+                if($FileStream -ne $null)
+                {
+                    $FileStream.Close()
+                    $FileStream.Dispose()
+                }
+            }
+        }
     }
-    finally
+    END
     {
-        
+        $Hasher.Dispose()
     }
 }
 
@@ -328,6 +341,7 @@ Function New-SASToken
             Verb=$Verb;
             Resource=$Resource;
             ContentLength=$ContentLength;
+            ContentMD5=$ContentMD5;
             ContentLanguage=$ContentLanguage;
             ContentEncoding=$ContentEncoding;
             ContentType=$ContentType;
@@ -484,7 +498,7 @@ Function Get-AzureBlobContainerBlobs
     }
 }
 
-Function Copy-AzureBlob
+Function Receive-AzureBlob
 {
     [CmdletBinding(DefaultParameterSetName='default')]
     param
@@ -495,8 +509,8 @@ Function Copy-AzureBlob
         [String]$StorageAccountDomain = "blob.core.windows.net",
         [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
         [String]$ContainerName='$root',
-        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
-        [String]$BlobName = '$root',
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
+        [String]$BlobName,
         [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='public')]
         [Parameter(Mandatory =$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [Uri[]]$Uri,
@@ -513,10 +527,6 @@ Function Copy-AzureBlob
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='public')]
         [String]$ApiVersion="2016-05-31"
     )
-    BEGIN
-    {
-        
-    }
     PROCESS
     {
         if($PSCmdlet.ParameterSetName -eq 'wordy')
@@ -530,7 +540,7 @@ Function Copy-AzureBlob
                 $StorageAccountName=$($item.Host.Split('.')|Select-Object -First 1)                
             }
             $DestinationFile=Join-Path $Destination $(Split-Path $item -Leaf)
-            Write-Verbose "[Copy-AzureBlob] Requesting Azure Storage Blob $item from Storage Account:$StorageAccountName"
+            Write-Verbose "[Receive-AzureBlob] Requesting Azure Storage Blob $item from Storage Account:$StorageAccountName"
             $RequestParams=@{
                 Uri=$item;
                 Destination=$DestinationFile;
@@ -544,9 +554,119 @@ Function Copy-AzureBlob
                 $SasToken=New-SASToken -Verb GET -Resource $item -AccessKey $AccessKey -Headers $BlobHeaders
                 $BlobHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($SasToken)")
                 $RequestParams.Add('Headers',$BlobHeaders)
-                Write-Verbose "[Copy-AzureBlob] Using SharedKey $SasToken"
+                Write-Verbose "[Receive-AzureBlob] Using SharedKey $SasToken"
             }
             DownloadBlob @RequestParams
+        }
+    }
+}
+
+Function Send-AzureBlob
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true)]
+        [String]$StorageAccount,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$StorageAccountDomain = "blob.core.windows.net",        
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ContainerName='$root',
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
+        [System.IO.FileInfo[]]$InputObject,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,        
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ApiVersion="2016-05-31",
+        [ValidateSet('BlockBlob','PageBlob','AppendBlob')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$BlobType="BlockBlob",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ContentType,  
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [System.Collections.IDictionary]$Metadata,              
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$CalculateChecksum
+    )
+    PROCESS
+    {
+        foreach ($item in $InputObject)
+        {
+            $Scheme='https'
+            if($UseHttp.IsPresent)
+            {
+                $Scheme='http'
+            }
+            $BlobUriBld=New-Object System.UriBuilder("$($Scheme)://$($StorageAccount).$($StorageAccountDomain)")      
+            $BlobUriBld.Path="$($ContainerName.TrimEnd('/'))/$($item.Name)"
+            $BlobHeaders=[ordered]@{}            
+            if([String]::IsNullOrEmpty($ContentType))
+            {
+                $ContentType=[System.Web.MimeMapping]::GetMimeMapping($item.Name)
+                Write-Verbose "[Send-AzureBlob] Inferring Content-Type:$ContentType"
+            }
+            $Checksum=[String]::Empty
+            if($BlobType -eq 'BlockBlob')
+            {
+                $BlobHeaders.Add('x-ms-blob-content-disposition',"attachment; filename=`"$($item.Name)`"")
+            }
+            if($CalculateChecksum.IsPresent)
+            {
+                Write-Verbose "[Send-AzureBlob] Calculating MD5 Hash for $($item.Name)"
+                $Checksum=$item|GetMd5Hash
+                $BlobHeaders.Add('x-ms-blob-content-md5',$Checksum)
+            }                        
+            $BlobHeaders.Add('x-ms-blob-content-type',$ContentType)
+            $BlobHeaders.Add('x-ms-blob-type',$BlobType)
+            if($Metadata -ne $null)
+            {
+                foreach ($MetaKey in $Metadata.Keys)
+                {
+                    $BlobHeaders.Add("x-ms-meta-$MetaKey",$Metadata[$MetaKey])
+                }
+            }
+            $BlobHeaders.Add('x-ms-date',[DateTime]::UtcNow.ToString('R'))
+            $BlobHeaders.Add('x-ms-version',$ApiVersion)
+            $TokenParams=@{
+                Resource=$BlobUriBld.Uri;
+                Verb='PUT';
+                ContentLength=$item.Length;
+                ContentType=$ContentType;
+                Headers=$BlobHeaders;
+                AccessKey=$AccessKey;
+            }
+            if([String]::IsNullOrEmpty($Checksum) -eq $false)
+            {
+                $TokenParams.Add('ContentMD5',$Checksum)
+            }            
+            $SasToken=New-SASToken @TokenParams
+            if([String]::IsNullOrEmpty($Checksum) -eq $false)
+            {
+                $BlobHeaders.Add('Content-MD5',$Checksum)
+            }
+            $BlobHeaders.Add("Authorization","SharedKey $($StorageAccount):$($SasToken)")
+            if($BlobType -eq 'BlockBlob')
+            {
+                Write-Verbose "[Send-AzureBlob] Uploading Block Blob $($item.FullName) to $($BlobUriBld.Uri)"
+                $FileBytes=[System.IO.File]::ReadAllBytes($item.FullName)
+                $BlobHeaders.Add('Content-Length',$FileBytes.Length)
+                $BlobHeaders.Add('Content-Type',$ContentType)
+                $RequestParams=@{
+                    Uri=$BlobUriBld.Uri;
+                    Method='PUT';
+                    Headers=$BlobHeaders;
+                    Body=$FileBytes;
+                }
+                $Response=Invoke-WebRequest @RequestParams
+                Write-Verbose "[Send-AzureBlob] Upload Completed $($Response.StatusCode) - $($Response.StatusDescription)"
+                Write-Output $Response.Headers
+            }
+            else
+            {
+
+            }
         }
     }
 }
