@@ -1,4 +1,6 @@
 
+$Script:UTF8ByteOrderMark=[System.Text.Encoding]::Default.GetString([System.Text.Encoding]::UTF8.GetPreamble())
+
 #region Helpers
 
 Function SignRequestString
@@ -21,7 +23,7 @@ Function SignRequestString
     Write-Output $SignedString
 }
 
-Function GetStringToSign
+Function GetTokenStringToSign
 {
     [CmdletBinding()]
     param
@@ -30,11 +32,6 @@ Function GetStringToSign
         [ValidateSet('GET','PUT','DELETE')]
         [string]
         $Verb="GET",
-        [Parameter(Mandatory=$true)]
-        [datetime]
-        $Date,
-        [string]
-        $TokenVersion = "2016-05-31",
         [Parameter(Mandatory=$true)]
         [System.Uri]
         $Resource,
@@ -58,9 +55,11 @@ Function GetStringToSign
         $RangeStart,
         [Parameter(Mandatory = $false)]
         [int]
-        $RangeEnd  
+        $RangeEnd,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]
+        $Headers
     )
-    $AccessDate=$Date.ToString('R')
     $ResourceBase=($Resource.Host.Split('.') | Select-Object -First 1).TrimEnd("`0")
     $ResourcePath=$Resource.LocalPath.TrimStart('/').TrimEnd("`0")
     $LengthString=[String]::Empty
@@ -73,20 +72,17 @@ Function GetStringToSign
     {
         $Range="bytes=$RangeStart-$RangeEnd"
     }
-    
+
     $SigningPieces=@(
         $Verb,$ContentEncoding,
         $ContentLanguage,$LengthString,
-        $ContentMD5,$ContentType,"","","","","",$Range,
-        "x-ms-date:$AccessDate","x-ms-version:$TokenVersion","/$ResourceBase/$ResourcePath"
+        $ContentMD5,$ContentType,"","","","","",$Range
     )
-    
-    <#
-    $SigningPieces=@($Verb.TrimEnd("`0"),"",
-        "","","","","","","","","","",
-        "x-ms-date:$($AccessDate.TrimEnd("`0"))","x-ms-version:$($TokenVersion.TrimEnd("`0"))","/$ResourceBase/$ResourcePath"
-    )
-    #>
+    foreach ($item in $Headers.Keys)
+    {
+        $SigningPieces+="$($item):$($Headers[$item])"
+    }
+    $SigningPieces+="/$ResourceBase/$ResourcePath"
 
     if ([String]::IsNullOrEmpty($Resource.Query) -eq $false)
     {
@@ -124,15 +120,45 @@ Function InvokeAzureStorageRequest
     (
         [Parameter(Mandatory=$true)]
         [Uri]$Uri,
+        [Parameter(Mandatory = $false)]
+        [Microsoft.PowerShell.Commands.WebRequestMethod]
+        $Method = "GET",
+        [Parameter(Mandatory = $false)]
+        [System.Object]
+        $Body, 
         [Parameter(Mandatory=$true)]
-        [System.Collections.IDictionary]$Headers
+        [System.Collections.IDictionary]$Headers,
+        [Parameter(Mandatory = $false)]
+        [Switch]
+        $ReturnHeaders
     )
-    $Response=Invoke-WebRequest -Method Get -Uri $BlobUriBld.Uri -Headers $Headers -UseBasicParsing -ErrorAction Stop
-    if ($Response -ne $null -and ([String]::IsNullOrEmpty($Response.Content) -eq $false))
+    $RequestParams=@{
+        Method=$Method;
+        Uri=$Uri;
+        Headers=$Headers;
+    }
+    if($Body -ne $null)
     {
-        #Really UTF-8 BOM???
-        [Xml]$Result=$Response.Content.Substring(3)
-        Write-Output $Result    
+        $RequestParams.Add('Body',$Body)
+    }
+    $Response=Invoke-WebRequest @RequestParams -UseBasicParsing -ErrorAction Stop
+    if($Response -ne $null)
+    {
+        if($ReturnHeaders.IsPresent -and $Response.Headers -ne $null)
+        {
+            Write-Output $Response.Headers
+        }
+        elseif ([String]::IsNullOrEmpty($Response.Content) -eq $false)
+        {
+            $ResultString=$Response.Content
+            if($ResultString.StartsWith($Script:UTF8ByteOrderMark,[System.StringComparison]::Ordinal))
+            {
+                #Really UTF-8 BOM???
+                $ResultString=$ResultString.Remove(0,$Script:UTF8ByteOrderMark.Length)
+            }
+            [Xml]$Result=$ResultString
+            Write-Output $Result
+        }
     }
 }
 
@@ -243,7 +269,6 @@ Function UploadBlob
     }
 }
 
-
 #endregion
 
 Function New-SASToken
@@ -286,11 +311,16 @@ Function New-SASToken
         $RangeEnd,
         [Parameter(Mandatory=$true)]
         [string]
-        $AccessKey     
+        $AccessKey,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]
+        $Headers
     )
-    $StringToSign=GetStringToSign -Verb GET -Date $Date -TokenVersion $TokenVersion -Resource $Resource `
+    $StringToSign = GetTokenStringToSign -Verb $Verb -Resource $Resource `
         -ContentLength $ContentLength -ContentLanguage $ContentLanguage -ContentEncoding $ContentEncoding `
-        -ContentType $ContentType -ContentMD5 $ContentMD5 -RangeStart $RangeStart -RangeEnd $RangeEnd
+        -ContentType $ContentType -ContentMD5 $ContentMD5 `
+        -RangeStart $RangeStart -RangeEnd $RangeEnd -Headers $Headers
+    Write-Verbose "[New-SASToken] String to Sign:$StringToSign"
     $SharedAccessSignature=SignRequestString -StringToSign $StringToSign -SigningKey $AccessKey
     Write-Output $SharedAccessSignature
 }
@@ -313,6 +343,7 @@ Function Get-BlobContainerMetadata
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [String]$ApiVersion="2016-05-31"
     )
+    $AccessDate = [DateTime]::UtcNow
     $BlobFQDN="https://$StorageAccountName.$StorageAccountDomain"
     #Build the uri..
     if($UseHttp.IsPresent)
@@ -322,15 +353,57 @@ Function Get-BlobContainerMetadata
     $BlobUriBld=New-Object System.UriBuilder($BlobFQDN)
     $BlobUriBld.Path="$ContainerName"
     $BlobUriBld.Query="restype=container&comp=metadata"
-    $AccessDate=[DateTime]::UtcNow
-    $SasToken=New-SASToken -Verb GET -Date $AccessDate -Resource $BlobUriBld.Uri -AccessKey $AccessKey
     $BlobHeaders= @{
         "x-ms-date"=$AccessDate.ToString('R');
         "x-ms-version"=$ApiVersion;
-        "Authorization"="SharedKey $($StorageAccountName):$($SasToken)"
     }
-    $Result=InvokeAzureStorageRequest -Uri $BlobUriBld.Uri -Headers $BlobHeaders
+    $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $Result=InvokeAzureStorageRequest -Method Get -Uri $BlobUriBld.Uri -Headers $BlobHeaders -ReturnHeaders
     Write-Output $Result
+}
+
+Function Set-BlobContainerMetadata
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [String]$ContainerName,
+        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "blob.core.windows.net",
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [System.Collections.IDictionary]$Metadata,
+        [Parameter(Mandatory = $false)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    $AccessDate = [DateTime]::UtcNow
+    $BlobFQDN = "https://$StorageAccountName.$StorageAccountDomain"
+    #Build the uri..
+    if ($UseHttp.IsPresent)
+    {
+        $BlobFQDN = "http://$StorageAccountName.$StorageAccountDomain"
+    }
+    $BlobUriBld = New-Object System.UriBuilder($BlobFQDN)
+    $BlobUriBld.Path = "$ContainerName"
+    $BlobUriBld.Query = "restype=container&comp=metadata"
+    $BlobHeaders = [ordered]@{
+        "x-ms-date" = $AccessDate.ToString('R');
+    }
+    foreach($MetaKey in ($Metadata.Keys|Sort-Object))
+    {
+        $BlobHeaders.Add("x-ms-meta-$MetaKey",$Metadata[$MetaKey])
+    }
+    $BlobHeaders.Add("x-ms-version",$ApiVersion)
+    $SasToken=New-SASToken -Verb PUT -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $Result = InvokeAzureStorageRequest -Method Put -Uri $BlobUriBld.Uri -Headers $BlobHeaders -ReturnHeaders
 }
 
 Function Get-BlobContainerContents
@@ -351,26 +424,26 @@ Function Get-BlobContainerContents
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [String]$ApiVersion="2016-05-31"
     )
+    $AccessDate = [DateTime]::UtcNow
     $BlobFQDN="https://$StorageAccountName.$StorageAccountDomain"
     #Build the uri..
     if($UseHttp.IsPresent)
     {
         $BlobFQDN="http://$StorageAccountName.$StorageAccountDomain"
     }
-    Write-Verbose "[Get-BlobContainerContents] Creating SAS Token for $($BlobUriBld.Uri)"
     $BlobUriBld=New-Object System.UriBuilder($BlobFQDN)
     $BlobUriBld.Path="$ContainerName"
     $BlobUriBld.Query="restype=container&comp=list"
-    $AccessDate=[DateTime]::UtcNow
-    $SasToken=New-SASToken -Verb GET -Date $AccessDate -Resource $BlobUriBld.Uri -AccessKey $AccessKey
+    Write-Verbose "[Get-BlobContainerContents] Creating SAS Token for $($BlobUriBld.Uri)"
     $BlobHeaders= @{
         "x-ms-date"=$AccessDate.ToString('R');
         "x-ms-version"=$ApiVersion;
-        "Authorization"="SharedKey $($StorageAccountName):$($SasToken)"
     }
+    $SasToken=New-SASToken -Verb GET -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
     $BlobResult=InvokeAzureStorageRequest -Uri $BlobUriBld.Uri -Headers $BlobHeaders|Select-Object -ExpandProperty EnumerationResults
     Write-Verbose "[Get-BlobContainerContents] Blob Response Endpoint:$($BlobResult.ServiceEndpoint) container $($BlobResult.ContainerName)"
-    if($BlobResult.Blobs -ne $null)
+    if ($BlobResult -ne $null -and  $BlobResult.Blobs -ne $null)
     {
         foreach ($Blob in $BlobResult.Blobs.Blob)
         {
@@ -384,17 +457,27 @@ Function Get-AzureStorageBlob
     [CmdletBinding(DefaultParameterSetName='default')]
     param
     (
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
+        [String]$StorageAccountDomain = "blob.core.windows.net",
+        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
+        [String]$ContainerName='$root',
+        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
+        [String]$BlobName = '$root',
         [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='public')]
-        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
+        [Parameter(Mandatory =$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [Uri[]]$Uri,
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='public')]
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
-        [string]$Destination=$env:TEMP,        
+        [string]$Destination=$env:TEMP,
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
         [String]$AccessKey,
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='public')]
         [Switch]$IsPublic,
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='public')]
         [String]$ApiVersion="2016-05-31"
     )
@@ -404,7 +487,11 @@ Function Get-AzureStorageBlob
     }
     PROCESS
     {
-        foreach ($item in $collection)
+        if($PSCmdlet.ParameterSetName -eq 'wordy')
+        {
+            $Uri=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+        }
+        foreach ($item in $Uri)
         {
             $StorageAccountName=$($item.Host.Split('.')|Select-Object -First 1)
             $DestinationFile=Join-Path $Destination $(Split-Path $item -Leaf)
@@ -413,17 +500,16 @@ Function Get-AzureStorageBlob
                 Uri=$item;
                 Destination=$DestinationFile;
             }
-            if ($PSCmdlet.ParameterSetName -eq 'default')
+            if ($PSCmdlet.ParameterSetName -in 'default','wordy')
             {
                 $AccessDate=[DateTime]::UtcNow
-                $SasToken=New-SASToken -Verb GET `
-                    -Date $AccessDate -TokenVersion $ApiVersion `
-                    -Resource $item -AccessKey $AccessKey
-                $RequestParams.Add('Headers',@{
+                $BlobHeaders=@{
                     'x-ms-date'=$AccessDate.ToString('R');
                     'x-ms-version'=$ApiVersion;
-                    'Authorization'="SharedKey $($StorageAccountName):$($SasToken)"
-                })
+                }
+                $SasToken=New-SASToken -Verb GET -Resource $item -AccessKey $AccessKey -Headers $BlobHeaders
+                $BlobHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($SasToken)")
+                $RequestParams.Add('Headers',$BlobHeaders)
                 Write-Verbose "[Get-AzureStorageBlob] Using SharedKey $SasToken"
             }
             DownloadBlob @RequestParams
