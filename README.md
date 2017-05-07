@@ -7,6 +7,9 @@
 ## A module wrapping Azure Storage REST Api functionality.
 
 ## Functionality
-* BLOB Operations
+* BLOB Service Operations
+    * Containers
+    * BLOBs
+    * Service Properties
 
 ### Read More at [Azure Field Notes Blog][] or follow us on Twitter at [@azurefieldnotes][]
