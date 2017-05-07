@@ -977,7 +977,12 @@ Function Get-AzureBlobMetadata
     {
         if($PSCmdlet.ParameterSetName -eq 'indirect')
         {
-            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+            $Scheme='https'
+            if($UseHttp.IsPresent)
+            {
+                $Scheme='http'
+            }
+            $InputObject=@(New-Object Uri("$($Scheme)://$($StorageAccountName).$($StorageAccountDomain)/$($ContainerName/$BlobName)"))
         }
         foreach($item in $InputObject)
         {
@@ -1092,7 +1097,12 @@ Function Set-AzureBlobMetadata
     {
         if($PSCmdlet.ParameterSetName -eq 'indirect')
         {
-            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+            $Scheme='https'
+            if($UseHttp.IsPresent)
+            {
+                $Scheme='http'
+            }
+            $InputObject=@(New-Object Uri("$($Scheme)://$($StorageAccountName).$($StorageAccountDomain)/$($ContainerName/$BlobName)"))
         }
         foreach($item in $InputObject)
         {
@@ -1151,7 +1161,12 @@ Function New-AzureBlobSnapshot
     {
         if($PSCmdlet.ParameterSetName -eq 'indirect')
         {
-            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+            $Scheme='https'
+            if($UseHttp.IsPresent)
+            {
+                $Scheme='http'
+            }
+            $InputObject=@(New-Object Uri("$($Scheme)://$($StorageAccountName).$($StorageAccountDomain)/$($ContainerName/$BlobName)"))
         }
         foreach($item in $InputObject)
         {
@@ -1198,6 +1213,15 @@ Function Remove-AzureBlob
         [String]$AccessKey,
         [Parameter(Mandatory=$false,ParameterSetName='indirect')]
         [Switch]$UseHttp,
+        [Parameter(Mandatory=$false,ParameterSetName='direct')]
+        [Parameter(Mandatory=$false,ParameterSetName='indirect')]
+        [Guid]$LeaseId,
+        [Parameter(Mandatory=$false,ParameterSetName='indirect')]
+        [Parameter(Mandatory=$false,ParameterSetName='direct')]
+        [Switch]$DeleteSnapshots,
+        [Parameter(Mandatory=$false,ParameterSetName='indirect')]
+        [Parameter(Mandatory=$false,ParameterSetName='direct')]
+        [Switch]$OnlySnapshots,
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='direct')]
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='indirect')]
         [String]$ApiVersion="2016-05-31"
@@ -1206,7 +1230,12 @@ Function Remove-AzureBlob
     {
         if($PSCmdlet.ParameterSetName -eq 'indirect')
         {
-            $InputObject=@(New-Object Uri("https://$StorageAccountName.$StorageAccountDomain/$ContainerName/$BlobName"))
+            $Scheme='https'
+            if($UseHttp.IsPresent)
+            {
+                $Scheme='http'
+            }
+            $InputObject=@(New-Object Uri("$($Scheme)://$($StorageAccountName).$($StorageAccountDomain)/$($ContainerName/$BlobName)"))
         }
         foreach($item in $InputObject)
         {
@@ -1223,6 +1252,18 @@ Function Remove-AzureBlob
             $BlobHeaders= @{
                 "x-ms-date"=[DateTime]::UtcNow.ToString('R');
                 "x-ms-version"=$ApiVersion;
+            }
+            if($LeaseId -ne [Guid]::Empty)
+            {
+                $BlobHeaders.Add('x-ms-lease-id',$LeaseId)
+            }
+            if($DeleteSnapshots.IsPresent)
+            {
+                $BlobHeaders.Add('x-ms-delete-snapshots','include')
+            }
+            elseif($OnlySnapshots.IsPresent)
+            {
+                $BlobHeaders.Add('x-ms-delete-snapshots','only')
             }
             $SasToken=New-SASToken -Verb DELETE -Resource $BlobUriBld.Uri -Headers $BlobHeaders
             $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
