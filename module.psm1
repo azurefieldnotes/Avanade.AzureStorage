@@ -633,3 +633,167 @@ Function Get-AzureBlobContainerProperties
     $Result=InvokeAzureStorageRequest -Method Get -Uri $BlobUriBld.Uri -Headers $BlobHeaders -ReturnHeaders
     Write-Output $Result
 }
+
+Function Get-AzureBlobContainerAcl
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$ContainerName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "blob.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    $AccessDate = [DateTime]::UtcNow
+    $BlobFQDN = "https://$StorageAccountName.$StorageAccountDomain"
+    #Build the uri..
+    if ($UseHttp.IsPresent)
+    {
+        $BlobFQDN = "http://$StorageAccountName.$StorageAccountDomain"
+    }
+    $BlobUriBld = New-Object System.UriBuilder($BlobFQDN)
+    $BlobUriBld.Path = "$ContainerName"
+    $BlobUriBld.Query = "restype=container&comp=acl"
+    $BlobHeaders = @{
+        "x-ms-date" = $AccessDate.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $SasToken = New-SASToken -Verb GET -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $Result = InvokeAzureStorageRequest -Method Get -Uri $BlobUriBld.Uri -Headers $BlobHeaders -ReturnHeaders
+    Write-Output $Result.'x-ms-blob-public-access'
+}
+
+Function Set-AzureBlobContainerAcl
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$ContainerName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "blob.core.windows.net",
+        [ValidateSet('container','blob','private')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessLevel,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    $AccessDate = [DateTime]::UtcNow
+    $BlobFQDN = "https://$StorageAccountName.$StorageAccountDomain"
+    #Build the uri..
+    if ($UseHttp.IsPresent)
+    {
+        $BlobFQDN = "http://$StorageAccountName.$StorageAccountDomain"
+    }
+    $BlobUriBld = New-Object System.UriBuilder($BlobFQDN)
+    $BlobUriBld.Path = "$ContainerName"
+    $BlobUriBld.Query = "restype=container&comp=acl"
+    $BlobHeaders = @{
+        "x-ms-date" = $AccessDate.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    if($AccessLevel -ne 'private')
+    {
+        $BlobHeaders.Add('x-ms-blob-public-access',$AccessLevel)
+    }
+    $SasToken = New-SASToken -Verb GET -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $Result = InvokeAzureStorageRequest -Method Get -Uri $BlobUriBld.Uri -Headers $BlobHeaders -ReturnHeaders
+    $Acl=$Result.'x-ms-blob-public-access'
+    if([String]::IsNullOrEmpty($Acl))
+    {
+        $Acl='private'
+    }
+    Write-Output $Acl
+}
+
+Function New-AzureBlobContainer
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$ContainerName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "blob.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    $AccessDate = [DateTime]::UtcNow
+    $BlobFQDN = "https://$StorageAccountName.$StorageAccountDomain"
+    #Build the uri..
+    if ($UseHttp.IsPresent)
+    {
+        $BlobFQDN = "http://$StorageAccountName.$StorageAccountDomain"
+    }
+    $BlobUriBld = New-Object System.UriBuilder($BlobFQDN)
+    $BlobUriBld.Path = "$ContainerName"
+    $BlobUriBld.Query = "restype=container"
+    $BlobHeaders = @{
+        "x-ms-date" = $AccessDate.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $SasToken = New-SASToken -Verb PUT -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $Result = InvokeAzureStorageRequest -Method Put -Uri $BlobUriBld.Uri -Headers $BlobHeaders -ReturnHeaders
+    Write-Output $Result
+}
+
+Function Remove-AzureBlobContainer
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$ContainerName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "blob.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    $AccessDate = [DateTime]::UtcNow
+    $BlobFQDN = "https://$StorageAccountName.$StorageAccountDomain"
+    #Build the uri..
+    if ($UseHttp.IsPresent)
+    {
+        $BlobFQDN = "http://$StorageAccountName.$StorageAccountDomain"
+    }
+    $BlobUriBld = New-Object System.UriBuilder($BlobFQDN)
+    $BlobUriBld.Path = "$ContainerName"
+    $BlobUriBld.Query = "restype=container"
+    $BlobHeaders = @{
+        "x-ms-date" = $AccessDate.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $SasToken = New-SASToken -Verb DELETE -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $Result = InvokeAzureStorageRequest -Method Delete -Uri $BlobUriBld.Uri -Headers $BlobHeaders -ReturnHeaders
+    Write-Output $Result
+}
