@@ -53,10 +53,10 @@ Function GetTokenStringToSign
         [String]
         $ContentMD5,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
-        [int]
+        [long]
         $RangeStart,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
-        [int]
+        [long]
         $RangeEnd,
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
         [System.Collections.IDictionary]
@@ -74,7 +74,7 @@ Function GetTokenStringToSign
         }
         if($RangeEnd -gt 0)
         {
-            $Range="bytes=$RangeStart-$RangeEnd"
+            $Range="bytes=$($RangeStart)-$($RangeEnd-1)"
         }
 
         $SigningPieces=@(
@@ -254,8 +254,10 @@ Function GetMd5Hash
     [CmdletBinding()]
     param
     (
-        [Parameter(Mandatory=$true,ValueFromPipeline=$true)]
-        [System.IO.FileInfo[]]$InputObject
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ParameterSetName='file')]
+        [System.IO.FileInfo[]]$InputObject,
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ParameterSetName='content')]
+        [System.Byte[]]$Content        
     )
     BEGIN
     {
@@ -263,28 +265,25 @@ Function GetMd5Hash
     }
     PROCESS
     {
-        foreach ($item in $InputObject)
+        if($PSCmdlet.ParameterSetName -eq 'file')
         {
-            $FileStream=[System.IO.Stream]::Null
-            try
+            foreach ($item in $InputObject)
             {
                 Write-Verbose "[GetMd5Hash] Calculating MD5 Hash for $($item.FullName)"
-                $FileStream=$item.OpenRead()
-                $Md5Hash=$Hasher.ComputeHash($FileStream)
+                $Md5Hash=@()
+                $HashResult=Get-FileHash -Path $item.FullName -Algorithm MD5|Select-Object -ExpandProperty Hash
+                for ($i = 0; $i -lt $HashResult.Length; $i+=2)
+                { 
+                    $Md5Hash+=$([Byte]::Parse($HashResult.Substring($i,2) -f "0:x",[System.Globalization.NumberStyles]::HexNumber))
+                }
                 Write-Output $([System.Convert]::ToBase64String($Md5Hash))
             }
-            catch
-            {
-                throw $_
-            }
-            finally
-            {
-                if($FileStream -ne $null)
-                {
-                    $FileStream.Close()
-                    $FileStream.Dispose()
-                }
-            }
+        }
+        else
+        {
+            Write-Verbose "[GetMd5Hash] Calculating MD5 Hash for Bytes Length $($Content.Length)"
+            $Md5Hash=$Hasher.ComputeHash($Content)
+            Write-Output $([System.Convert]::ToBase64String($Md5Hash))
         }
     }
     END
@@ -597,12 +596,17 @@ Function Send-AzureBlob
         foreach ($item in $InputObject)
         {
             $Checksum=[String]::Empty
-            $Scheme='https'
+            #Make sure this aligns across a 512-byte boundary
+            if(($BlobType -eq 'PageBlob') -and ($item.Length % 512 -ne 0))
+            {
+                throw "Page BLOB(s) must align to 512 byte boundaries"
+            }
+            $BlobFqdn="https://$($StorageAccount).$($StorageAccountDomain)"
             if($UseHttp.IsPresent)
             {
-                $Scheme='http'
+                $BlobFqdn="http://$($StorageAccount).$($StorageAccountDomain)"
             }
-            $BlobUriBld=New-Object System.UriBuilder("$($Scheme)://$($StorageAccount).$($StorageAccountDomain)")      
+            $BlobUriBld=New-Object System.UriBuilder($BlobFqdn)      
             $BlobUriBld.Path="$($ContainerName.TrimEnd('/'))/$($item.Name)"
             $BlobHeaders=[ordered]@{}            
             if([String]::IsNullOrEmpty($ContentType))
@@ -623,7 +627,7 @@ Function Send-AzureBlob
             }
             else
             {
-                $BlobHeaders.Add('x-ms-content-length',$item.Length)
+                $BlobHeaders.Add('x-ms-blob-content-length',$item.Length)
             }
             if($CalculateChecksum.IsPresent)
             {
@@ -634,8 +638,7 @@ Function Send-AzureBlob
                 $TokenParams.Add('ContentMD5',$Checksum)
             }                         
             $BlobHeaders.Add('x-ms-blob-content-type',$ContentType)
-            $BlobHeaders.Add('x-ms-blob-type',$BlobType)
-            
+            $BlobHeaders.Add('x-ms-blob-type',$BlobType)            
             if($Metadata -ne $null)
             {
                 foreach ($MetaKey in $Metadata.Keys)
@@ -670,43 +673,40 @@ Function Send-AzureBlob
                 Write-Output $Response.Headers
             }
             else
-            {
-                Write-Verbose "[Send-AzureBlob] Uploading Page Blob $($item.FullName) to $($BlobUriBld.Uri)"
+            {                
+                Write-Verbose "[Send-AzureBlob] Creating Page Blob $($item.FullName) @ $($BlobUriBld.Uri) of size $($item.Length/1MB)"
+                $BlobHeaders.Add('Content-Type',$ContentType)
+                $RequestParams=@{
+                    Uri=$BlobUriBld.Uri;
+                    Method='PUT';
+                    Headers=$BlobHeaders;
+                    ReturnHeaders=$true;
+                    ErrorAction='Stop';
+                }
+                $Response=InvokeAzureStorageRequest @RequestParams
+                Write-Verbose "[Send-AzureBlob] Creating Page Blob $($item.FullName) @ $($BlobUriBld.Uri) of size $($item.Length/1MB) - Success!"
+                #Now we can start appending the pages
                 $InputStream=[System.IO.Stream]::Null
-                $RequestStream=[System.IO.Stream]::Null
-                $BytesWritten=0
                 try
                 {
-                    $WebRequest=[System.Net.WebRequest]::Create($BlobUriBld.Uri)
-                    $WebRequest.SendChunked=$true
-                    $WebRequest.Method='PUT'               
-                    $WebRequest.ContentLength=0     
-                    $WebRequest.ContentType=$ContentType
-                    foreach ($HeaderName in $BlobHeaders.Keys)
-                    {
-                        $WebRequest.Headers.Add($HeaderName,$BlobHeaders[$HeaderName])
-                    }
-                    <#
-
-                    $RequestStream=$WebRequest.GetRequestStream()
-                    $Buffer=New-Object Byte[]($PageBufferSize)
-                    #StartReading the file stream
+                    $BytesWritten=0
+                    Write-Verbose "[Send-AzureBlob] Appending File Stream to Page BLOB @ $($BlobUriBld.Uri) - Page Size:$PageBufferSize"
+                    $Buffer=New-Object System.Byte[]($PageBufferSize)
                     $InputStream=$item.OpenRead()
-                    $BytesRead=$InputStream.Read($Buffer,0,$PageBufferSize)
+                    $BytesRead=$InputStream.Read($Buffer,$BytesWritten,$PageBufferSize)
                     while ($BytesRead -gt 0)
                     {
+                        $RangeStart=$BytesWritten
                         $BytesWritten+=$BytesRead
+                        Set-AzureBlobPage -Page $Buffer -StorageAccount $StorageAccount -StorageAccountDomain $StorageAccountDomain `
+                            -ContainerName $ContainerName -BlobItem $item.Name -AccessKey $AccessKey -ApiVersion $ApiVersion `
+                            -UseHttp:$UseHttp -CalculateChecksum:$CalculateChecksum -RangeStart $RangeStart -RangeEnd $BytesWritten
                         $BytesRead=$InputStream.Read($Buffer,0,$PageBufferSize)
-                        #Write to the response stream..
-                        $RequestStream.Write($Buffer,0,$BytesRead)
-                    }
-                    $Response=$WebRequest.GetResponse()
-
-                    #>
+                    }               
                 }
                 catch
                 {
-                    throw $_    
+                    throw $_
                 }
                 finally
                 {
@@ -714,14 +714,115 @@ Function Send-AzureBlob
                     {
                         $InputStream.Dispose()
                     }
-                    if($RequestStream -ne $null)
-                    {
-                        $RequestStream.Dispose()
-                    }
                 }
             }
         }
     }
+}
+
+Function Set-AzureBlobPage
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [String]$StorageAccount,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [String]$StorageAccountDomain = "blob.core.windows.net",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [String]$ContainerName='$root',
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [String]$BlobItem,        
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [long]$RangeStart,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [long]$RangeEnd,
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [System.Byte[]]$Page,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [String]$AccessKey,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [String]$ApiVersion="2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='clear')]
+        [Switch]$ClearRange,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='update')]
+        [Switch]$CalculateChecksum
+    )
+    $Checksum=[String]::Empty
+    if($PSCmdlet.ParameterSetName -eq 'update')
+    {
+        $WriteAction='Update'
+        $ContentLength=$Page.Length
+        if($CalculateChecksum.IsPresent)
+        {
+            $Hasher= New-Object System.Security.Cryptography.MD5CryptoServiceProvider
+            $Checksum=[System.Convert]::ToBase64String($Hasher.ComputeHash($Page))
+        }
+    }
+    else
+    {
+        $WriteAction='Clear'
+        $ContentLength=0
+    }
+    $BlobFqdn="https://$($StorageAccount).$($StorageAccountDomain)"
+    if($UseHttp.IsPresent)
+    {
+        $BlobFqdn="http://$($StorageAccount).$($StorageAccountDomain)"
+    }
+    $BlobUriBld=New-Object System.UriBuilder($BlobFqdn)      
+    $BlobUriBld.Path="$($ContainerName.TrimEnd('/'))/$($BlobItem)"
+    $BlobUriBld.Query="comp=page"
+    Write-Verbose "[Set-AzureBlobPage] Azure BLOB Page Action:$WriteAction $($BlobUriBld.Uri) $RangeStart,$RangeEnd"
+    $TokenParams=@{
+        Resource=$BlobUriBld.Uri;
+        Verb='PUT';
+        AccessKey=$AccessKey;
+        #RangeStart=$RangeStart;
+        #RangeEnd=$RangeEnd;
+    }
+    if($ContentLength -gt 0)
+    {
+        $TokenParams.Add('ContentLength',$ContentLength)
+    }
+    $BlobHeaders=[ordered]@{
+        'x-ms-blob-type'="PageBlob";
+        'x-ms-date'=[System.DateTime]::UtcNow.ToString('R');
+        'x-ms-page-write'=$WriteAction;
+        'x-ms-range'="bytes=$RangeStart-$($RangeEnd-1)";
+        'x-ms-version'=$ApiVersion;
+    }
+    if([String]::IsNullOrEmpty($Checksum) -eq $false)
+    {
+        $TokenParams.Add('ContentMD5',$Checksum)
+    }
+    $TokenParams.Add('Headers',$BlobHeaders)
+    $SasToken=New-SASToken @TokenParams
+    if([String]::IsNullOrEmpty($Checksum) -eq $false)
+    {
+        $BlobHeaders.Add('Content-MD5',$Checksum)
+    }
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccount):$SasToken")
+    $BlobHeaders.Add('Content-Length',$ContentLength)
+    $RequestParams=@{
+        Uri=$BlobUriBld.Uri;
+        Method='PUT';
+        Headers=$BlobHeaders;
+        Body=$Page;
+        ReturnHeaders=$true
+    }
+    $Result=InvokeAzureStorageRequest @RequestParams
+    Write-Output $Result
 }
 
 Function Get-AzureBlobContainer
