@@ -187,7 +187,7 @@ Function DownloadBlob
         $Destination,
         [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true)]
         [int]
-        $BufferSize = 4096
+        $BufferSize =  4096000
     )
     $ResponseStream = [System.IO.Stream]::Null
     $OutputStream = [System.IO.Stream]::Null
@@ -524,7 +524,11 @@ Function Receive-AzureBlob
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
         [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='public')]
-        [String]$ApiVersion="2016-05-31"
+        [String]$ApiVersion="2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false, ValueFromPipelineByPropertyName = $true, ParameterSetName='wordy')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='public')]
+        [int]$BufferSize=4096000
     )
     PROCESS
     {
@@ -543,6 +547,7 @@ Function Receive-AzureBlob
             $RequestParams=@{
                 Uri=$item;
                 Destination=$DestinationFile;
+                BufferSize=$BufferSize;
             }
             if ($PSCmdlet.ParameterSetName -in 'default','wordy')
             {
@@ -589,7 +594,7 @@ Function Send-AzureBlob
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [Switch]$CalculateChecksum,
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
-        [int]$PageBufferSize=4096
+        [int]$PageBufferSize=4096000
     )
     PROCESS
     {
@@ -675,6 +680,7 @@ Function Send-AzureBlob
             else
             {                
                 Write-Verbose "[Send-AzureBlob] Creating Page Blob $($item.FullName) @ $($BlobUriBld.Uri) of size $($item.Length/1MB)"
+                Write-Progress -Activity "Creating Page BLOB" -Status "Creating $($item.FullName) @ $($BlobUriBld.Uri) of size $($item.Length/1MB)"
                 $BlobHeaders.Add('Content-Type',$ContentType)
                 $RequestParams=@{
                     Uri=$BlobUriBld.Uri;
@@ -698,11 +704,13 @@ Function Send-AzureBlob
                     {
                         $RangeStart=$BytesWritten
                         $BytesWritten+=$BytesRead
-                        Set-AzureBlobPage -Page $Buffer -StorageAccount $StorageAccount -StorageAccountDomain $StorageAccountDomain `
+                        $Page=$Buffer[0..$($BytesRead-1)]
+                        Set-AzureBlobPage -Page $Page -StorageAccount $StorageAccount -StorageAccountDomain $StorageAccountDomain `
                             -ContainerName $ContainerName -BlobItem $item.Name -AccessKey $AccessKey -ApiVersion $ApiVersion `
                             -UseHttp:$UseHttp -CalculateChecksum:$CalculateChecksum -RangeStart $RangeStart -RangeEnd $BytesWritten
+                        Write-Progress -Activity "Updating Page BLOB" -Status "$($BlobUriBld.Uri) $($BytesWritten/1MB) MB written" -PercentComplete $($BytesWritten/$item.Length * 100)
                         $BytesRead=$InputStream.Read($Buffer,0,$PageBufferSize)
-                    }               
+                    }
                 }
                 catch
                 {
@@ -710,6 +718,7 @@ Function Send-AzureBlob
                 }
                 finally
                 {
+                    Write-Progress -Activity "Creating Page BLOB" -Completed
                     if($InputStream -ne $null)
                     {
                         $InputStream.Dispose()
