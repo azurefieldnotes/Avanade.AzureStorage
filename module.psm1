@@ -588,12 +588,15 @@ Function Send-AzureBlob
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [System.Collections.IDictionary]$Metadata,              
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
-        [Switch]$CalculateChecksum
+        [Switch]$CalculateChecksum,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [int]$PageBufferSize=4096
     )
     PROCESS
     {
         foreach ($item in $InputObject)
         {
+            $Checksum=[String]::Empty
             $Scheme='https'
             if($UseHttp.IsPresent)
             {
@@ -607,19 +610,32 @@ Function Send-AzureBlob
                 $ContentType=[System.Web.MimeMapping]::GetMimeMapping($item.Name)
                 Write-Verbose "[Send-AzureBlob] Inferring Content-Type:$ContentType"
             }
-            $Checksum=[String]::Empty
+            $TokenParams=@{
+                Resource=$BlobUriBld.Uri;
+                Verb='PUT';
+                ContentType=$ContentType;
+                AccessKey=$AccessKey;
+            }              
             if($BlobType -eq 'BlockBlob')
             {
+                $TokenParams.Add('ContentLength',$item.Length)
                 $BlobHeaders.Add('x-ms-blob-content-disposition',"attachment; filename=`"$($item.Name)`"")
+            }
+            else
+            {
+                $BlobHeaders.Add('x-ms-content-length',$item.Length)
             }
             if($CalculateChecksum.IsPresent)
             {
                 Write-Verbose "[Send-AzureBlob] Calculating MD5 Hash for $($item.Name)"
-                $Checksum=$item|GetMd5Hash
+                $Checksum=$item|GetMd5Hash  
+                Write-Verbose "[Send-AzureBlob] Calculated Hash $Checksum"
                 $BlobHeaders.Add('x-ms-blob-content-md5',$Checksum)
-            }                        
+                $TokenParams.Add('ContentMD5',$Checksum)
+            }                         
             $BlobHeaders.Add('x-ms-blob-content-type',$ContentType)
             $BlobHeaders.Add('x-ms-blob-type',$BlobType)
+            
             if($Metadata -ne $null)
             {
                 foreach ($MetaKey in $Metadata.Keys)
@@ -627,20 +643,10 @@ Function Send-AzureBlob
                     $BlobHeaders.Add("x-ms-meta-$MetaKey",$Metadata[$MetaKey])
                 }
             }
+
             $BlobHeaders.Add('x-ms-date',[DateTime]::UtcNow.ToString('R'))
             $BlobHeaders.Add('x-ms-version',$ApiVersion)
-            $TokenParams=@{
-                Resource=$BlobUriBld.Uri;
-                Verb='PUT';
-                ContentLength=$item.Length;
-                ContentType=$ContentType;
-                Headers=$BlobHeaders;
-                AccessKey=$AccessKey;
-            }
-            if([String]::IsNullOrEmpty($Checksum) -eq $false)
-            {
-                $TokenParams.Add('ContentMD5',$Checksum)
-            }            
+            $TokenParams.Add('Headers',$BlobHeaders)    
             $SasToken=New-SASToken @TokenParams
             if([String]::IsNullOrEmpty($Checksum) -eq $false)
             {
@@ -665,7 +671,54 @@ Function Send-AzureBlob
             }
             else
             {
+                Write-Verbose "[Send-AzureBlob] Uploading Page Blob $($item.FullName) to $($BlobUriBld.Uri)"
+                $InputStream=[System.IO.Stream]::Null
+                $RequestStream=[System.IO.Stream]::Null
+                $BytesWritten=0
+                try
+                {
+                    $WebRequest=[System.Net.WebRequest]::Create($BlobUriBld.Uri)
+                    $WebRequest.SendChunked=$true
+                    $WebRequest.Method='PUT'               
+                    $WebRequest.ContentLength=0     
+                    $WebRequest.ContentType=$ContentType
+                    foreach ($HeaderName in $BlobHeaders.Keys)
+                    {
+                        $WebRequest.Headers.Add($HeaderName,$BlobHeaders[$HeaderName])
+                    }
+                    <#
 
+                    $RequestStream=$WebRequest.GetRequestStream()
+                    $Buffer=New-Object Byte[]($PageBufferSize)
+                    #StartReading the file stream
+                    $InputStream=$item.OpenRead()
+                    $BytesRead=$InputStream.Read($Buffer,0,$PageBufferSize)
+                    while ($BytesRead -gt 0)
+                    {
+                        $BytesWritten+=$BytesRead
+                        $BytesRead=$InputStream.Read($Buffer,0,$PageBufferSize)
+                        #Write to the response stream..
+                        $RequestStream.Write($Buffer,0,$BytesRead)
+                    }
+                    $Response=$WebRequest.GetResponse()
+
+                    #>
+                }
+                catch
+                {
+                    throw $_    
+                }
+                finally
+                {
+                    if($InputStream -ne $null)
+                    {
+                        $InputStream.Dispose()
+                    }
+                    if($RequestStream -ne $null)
+                    {
+                        $RequestStream.Dispose()
+                    }
+                }
             }
         }
     }
