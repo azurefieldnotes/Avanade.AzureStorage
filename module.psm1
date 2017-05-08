@@ -224,9 +224,9 @@ Function DownloadBlob
             $OutputStream.Write($ReadBuffer, 0, $BytesRead)
             $BytesRead = $ResponseStream.Read($ReadBuffer, 0, $BufferSize)
             $BytesWritten+=$BytesRead
-            $Speed=$(($BytesWritten/1MB)/$Stopwatch.Elapsed.Seconds)
-            Write-Verbose "$Activity - Writing Response $ContentType $(Split-Path -Path $Destination -Leaf)`t-`t$BytesWritten"
-            Write-Progress -Activity $Activity -Status "Response $ContentType $(Split-Path -Path $Destination -Leaf) $BytesWritten bytes written -`t($Speed mb/s)" `
+            $Speed=[Math]::Round(($BytesWritten/1MB)/$Stopwatch.Elapsed.TotalSeconds,2)
+            Write-Verbose "$Activity - Writing Response $ContentType $(Split-Path -Path $Destination -Leaf) - $BytesWritten"
+            Write-Progress -Activity $Activity -Status "Response $ContentType $(Split-Path -Path $Destination -Leaf) $([Math]::Round($BytesWritten/1MB)) MB written - ($Speed mb/s)" `
                 -PercentComplete $(($BytesWritten/$TotalSize) * 100)
         }
     }
@@ -680,7 +680,7 @@ Function Send-AzureBlob
             else
             {                
                 Write-Verbose "[Send-AzureBlob] Creating Page Blob $($item.FullName) @ $($BlobUriBld.Uri) of size $($item.Length/1MB)"
-                Write-Progress -Activity "Creating Page BLOB" -Status "Creating $($item.FullName) @ $($BlobUriBld.Uri) of size $($item.Length/1MB)"
+                Write-Progress -Activity "Creating Page BLOB" -Status "Creating $($item.FullName) @ $($BlobUriBld.Uri) of size $($item.Length/1MB) MB"
                 $BlobHeaders.Add('Content-Type',$ContentType)
                 $RequestParams=@{
                     Uri=$BlobUriBld.Uri;
@@ -693,8 +693,10 @@ Function Send-AzureBlob
                 Write-Verbose "[Send-AzureBlob] Creating Page Blob $($item.FullName) @ $($BlobUriBld.Uri) of size $($item.Length/1MB) - Success!"
                 #Now we can start appending the pages
                 $InputStream=[System.IO.Stream]::Null
+                $Stopwatch=New-Object System.Diagnostics.Stopwatch
                 try
                 {
+                    $Stopwatch.Start()
                     $BytesWritten=0
                     Write-Verbose "[Send-AzureBlob] Appending File Stream to Page BLOB @ $($BlobUriBld.Uri) - Page Size:$PageBufferSize"
                     $Buffer=New-Object System.Byte[]($PageBufferSize)
@@ -705,10 +707,12 @@ Function Send-AzureBlob
                         $RangeStart=$BytesWritten
                         $BytesWritten+=$BytesRead
                         $Page=$Buffer[0..$($BytesRead-1)]
-                        Set-AzureBlobPage -Page $Page -StorageAccount $StorageAccount -StorageAccountDomain $StorageAccountDomain `
+                        $Speed=[Math]::Round($BytesWritten/1MB/$Stopwatch.Elapsed.TotalSeconds,2)
+                        $PutPageResult=Set-AzureBlobPage -Page $Page -StorageAccount $StorageAccount -StorageAccountDomain $StorageAccountDomain `
                             -ContainerName $ContainerName -BlobItem $item.Name -AccessKey $AccessKey -ApiVersion $ApiVersion `
                             -UseHttp:$UseHttp -CalculateChecksum:$CalculateChecksum -RangeStart $RangeStart -RangeEnd $BytesWritten
-                        Write-Progress -Activity "Updating Page BLOB" -Status "$($BlobUriBld.Uri) $($BytesWritten/1MB) MB written" -PercentComplete $($BytesWritten/$item.Length * 100)
+                        $DetailedStatus="[Send-AzureBlob] ETag:$($PutPageResult.ETag) Transfer-Encoding:$($PutPageResult.'Transfer-Encoding') Request Id:$($PutPageResult.'x-ms-request-id')"
+                        Write-Progress -Activity "Updating Page BLOB" -Status "Updating $($BlobUriBld.Uri) $([Math]::Round($BytesWritten/1MB)) MB written - ($Speed mb/s)" -PercentComplete $($BytesWritten/$item.Length * 100)
                         $BytesRead=$InputStream.Read($Buffer,0,$PageBufferSize)
                     }
                 }
@@ -718,6 +722,7 @@ Function Send-AzureBlob
                 }
                 finally
                 {
+                    $Stopwatch.Stop()
                     Write-Progress -Activity "Creating Page BLOB" -Completed
                     if($InputStream -ne $null)
                     {
