@@ -293,7 +293,31 @@ Function GetMd5Hash
 }
 
 #endregion
+<#
+    .SYNOPSIS
+        Generates a new Shared Access Signature
+    .PARAMETER Verb
+        The HTTP Verb for the request
+    .PARAMETER Resource
+        The resource to be accessed
+    .PARAMETER ContentLength
+        The Content-Length header value
+    .PARAMETER ContentEncoding
+        The Content-Encoding header value
+    .PARAMETER ContentType
+        The Content-Type header value  
+    .PARAMETER ContentMD5
+        The Content-MD5 header value
+    .PARAMETER RangeStart
+        The Range header start value 
+    .PARAMETER RangeEnd
+        The Range header end value
+    .PARAMETERS Headers
+        The Request Header collection ('including the canonical x-ms-date and x-ms-version')
+    .PARAMETER AccessKey
+        The storage service access key
 
+#>
 Function New-SASToken
 {
     [CmdletBinding()]
@@ -355,6 +379,10 @@ Function New-SASToken
     }
 }
 
+<#
+    .SYNOPSIS
+        Retrieves the metadata set for a BLOB container
+#>
 Function Get-AzureBlobContainerMetadata
 {
     [CmdletBinding()]
@@ -399,6 +427,20 @@ Function Get-AzureBlobContainerMetadata
     Write-Output $Result
 }
 
+<#
+    .SYNOPSIS
+        Updates the metadata set for a BLOB container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER ContainerName
+        The storage account BLOB container name        
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests
+#>
 Function Set-AzureBlobContainerMetadata
 {
     [CmdletBinding()]
@@ -447,6 +489,22 @@ Function Set-AzureBlobContainerMetadata
     $Result = InvokeAzureStorageRequest @RequestParams
 }
 
+<#
+    .SYNOPSIS
+        Retrieves the list of BLOB(s) for a BLOB container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER ContainerName
+        The storage account BLOB container name        
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API 
+#>
 Function Get-AzureBlobContainerBlobs
 {
     [CmdletBinding()]
@@ -497,6 +555,30 @@ Function Get-AzureBlobContainerBlobs
     }
 }
 
+<#
+    .SYNOPSIS
+        Downloads a file from a BLOB container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER ContainerName
+        The storage account BLOB container name 
+    .PARAMETER BlobName
+        The name of the BLOB to download
+    .PARAMETER Uri
+        The location of the item(s) to be downloaded
+    .PARAMETER Destination
+        The download destination folder path
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests
+    .PARAMETER BufferSize
+        The size of the download buffer
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+#>
 Function Receive-AzureBlob
 {
     [CmdletBinding(DefaultParameterSetName='default')]
@@ -565,6 +647,32 @@ Function Receive-AzureBlob
     }
 }
 
+<#
+    .SYNOPSIS
+        Uploads a file to a BLOB storage container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER ContainerName
+        The storage account BLOB container name
+    .PARAMETER InputObject
+        The item(s) to be uploaded
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+    .PARAMETER BlobType
+        The type of BLOB to be created
+    .PARAMETER ContentType
+        The type of content to be uploaded        
+    .PARAMETER CalculateChecksum
+        Whether to calculate and include an MD5 checksum
+    .PARAMETER BlobType
+        The type of BLOB to be created
+#>
 Function Send-AzureBlob
 {
     [CmdletBinding()]
@@ -630,9 +738,13 @@ Function Send-AzureBlob
                 $TokenParams.Add('ContentLength',$item.Length)
                 $BlobHeaders.Add('x-ms-blob-content-disposition',"attachment; filename=`"$($item.Name)`"")
             }
-            else
+            elseif($BlobType -eq 'PageBlob')
             {
                 $BlobHeaders.Add('x-ms-blob-content-length',$item.Length)
+            }
+            else
+            {
+                throw "AppendBlob not yet supported"
             }
             if($CalculateChecksum.IsPresent)
             {
@@ -839,6 +951,20 @@ Function Set-AzureBlobPage
     Write-Output $Result
 }
 
+<#
+    .SYNOPSIS
+        Retrieves the list of containers for the storage account
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+#>
 Function Get-AzureBlobContainer
 {
     [CmdletBinding()]
@@ -887,6 +1013,20 @@ Function Get-AzureBlobContainer
     }
 }
 
+<#
+    .SYNOPSIS
+        Retrieves the service properties for the storage account
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API        
+#>
 Function Get-AzureBlobServiceProperties
 {
     [CmdletBinding()]
@@ -928,6 +1068,22 @@ Function Get-AzureBlobServiceProperties
     Write-Output $BlobResult
 }
 
+<#
+    .SYNOPSIS
+        Retrieves the properties for a Blob container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ContainerName
+        The name of the container        
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API        
+#>
 Function Get-AzureBlobContainerProperties
 {
     [CmdletBinding()]
@@ -972,6 +1128,22 @@ Function Get-AzureBlobContainerProperties
     Write-Output $Result
 }
 
+<#
+    .SYNOPSIS
+        Retrieves the public Access Control for a Blob container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ContainerName
+        The name of the container        
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API        
+#>
 Function Get-AzureBlobContainerAcl
 {
     [CmdletBinding()]
@@ -1016,6 +1188,24 @@ Function Get-AzureBlobContainerAcl
     Write-Output $Result.'x-ms-blob-public-access'
 }
 
+<#
+    .SYNOPSIS
+        Set the public access control for a blob container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ContainerName
+        The name of the container        
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+    .PARAMETER AccessLevel
+        The public access level for the container
+#>
 Function Set-AzureBlobContainerAcl
 {
     [CmdletBinding()]
@@ -1072,6 +1262,22 @@ Function Set-AzureBlobContainerAcl
     Write-Output $Acl
 }
 
+<#
+    .SYNOPSIS
+        Creates a new BLOB container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ContainerName
+        The name of the container        
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+#>
 Function New-AzureBlobContainer
 {
     [CmdletBinding()]
@@ -1115,6 +1321,22 @@ Function New-AzureBlobContainer
     Write-Output $Result
 }
 
+<#
+    .SYNOPSIS
+        Deletes a new BLOB container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ContainerName
+        The name of the container        
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+#>
 Function Remove-AzureBlobContainer
 {
     [CmdletBinding()]
@@ -1159,6 +1381,22 @@ Function Remove-AzureBlobContainer
     Write-Output $Result
 }
 
+<#
+    .SYNOPSIS
+        Creates a new BLOB container lease
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ContainerName
+        The name of the container        
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+#>
 Function Set-AzureBlobContainerLease
 {
     [CmdletBinding()]
@@ -1237,6 +1475,26 @@ Function Set-AzureBlobContainerLease
     Write-Output $Result
 }
 
+<#
+    .SYNOPSIS
+        Retrieves the metadata for a BLOB
+    .PARAMETER Uri
+        The URI of the BLOB
+    .PARAMETER BlobName
+        The name of the BLOB
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ContainerName
+        The name of the container        
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+#>
 Function Get-AzureBlobMetadata
 {
     [CmdletBinding()]
