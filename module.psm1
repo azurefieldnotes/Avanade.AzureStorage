@@ -809,7 +809,6 @@ Function Send-AzureBlob
                 $Stopwatch=New-Object System.Diagnostics.Stopwatch
                 try
                 {
-                    $Stopwatch.Start()
                     $BytesWritten=0
                     Write-Verbose "[Send-AzureBlob] Appending File Stream to Page BLOB @ $($BlobUriBld.Uri) - Page Size:$PageBufferSize"
                     $Buffer=New-Object System.Byte[]($PageBufferSize)
@@ -817,13 +816,15 @@ Function Send-AzureBlob
                     $BytesRead=$InputStream.Read($Buffer,$BytesWritten,$PageBufferSize)
                     while ($BytesRead -gt 0)
                     {
+                        $Stopwatch.Start()
                         $RangeStart=$BytesWritten
                         $BytesWritten+=$BytesRead
                         $Page=$Buffer[0..$($BytesRead-1)]
-                        $Speed=[Math]::Round($BytesWritten/1MB/$Stopwatch.Elapsed.TotalSeconds,2)
                         $PutPageResult=Set-AzureBlobPage -Page $Page -StorageAccount $StorageAccount -StorageAccountDomain $StorageAccountDomain `
                             -ContainerName $ContainerName -BlobItem $item.Name -AccessKey $AccessKey -ApiVersion $ApiVersion `
                             -UseHttp:$UseHttp -CalculateChecksum:$CalculateChecksum -RangeStart $RangeStart -RangeEnd $BytesWritten
+                        $Speed=[Math]::Round($BytesWritten/1MB/$Stopwatch.Elapsed.TotalSeconds,2)
+                        $Stopwatch.Stop()                            
                         $DetailedStatus="[Send-AzureBlob] ETag:$($PutPageResult.ETag) Transfer-Encoding:$($PutPageResult.'Transfer-Encoding') Request Id:$($PutPageResult.'x-ms-request-id')"
                         Write-Progress -Activity "Updating Page BLOB" -Status "Updating $($BlobUriBld.Uri) $([Math]::Round($BytesWritten/1MB)) MB written - ($Speed mb/s)" -PercentComplete $($BytesWritten/$item.Length * 100)
                         $BytesRead=$InputStream.Read($Buffer,0,$PageBufferSize)
@@ -847,6 +848,29 @@ Function Send-AzureBlob
     }
 }
 
+<#
+    .SYNOPSIS
+        Updates the content of a Page BLOB
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER ContainerName
+        The storage account BLOB container name
+    .PARAMETER BlobItem
+        The name of the item to be uploaded
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        Tnh
+    .PARAMETER RangeStart
+        The byte position of the page range
+    .PARAMETER RangeStart
+        The ending byte position of the page range        
+    .
+#>
 Function Set-AzureBlobPage
 {
     [CmdletBinding()]
@@ -887,6 +911,7 @@ Function Set-AzureBlobPage
         [Switch]$CalculateChecksum
     )
     $Checksum=[String]::Empty
+
     if($PSCmdlet.ParameterSetName -eq 'update')
     {
         $WriteAction='Update'
@@ -907,6 +932,7 @@ Function Set-AzureBlobPage
     {
         $BlobFqdn="http://$($StorageAccount).$($StorageAccountDomain)"
     }
+    
     $BlobUriBld=New-Object System.UriBuilder($BlobFqdn)      
     $BlobUriBld.Path="$($ContainerName.TrimEnd('/'))/$($BlobItem)"
     $BlobUriBld.Query="comp=page"
@@ -934,22 +960,39 @@ Function Set-AzureBlobPage
         $TokenParams.Add('ContentMD5',$Checksum)
     }
     $TokenParams.Add('Headers',$BlobHeaders)
-    $SasToken=New-SharedKeySignature @TokenParams
-    if([String]::IsNullOrEmpty($Checksum) -eq $false)
+    $StopWatch=New-Object System.Diagnostics.Stopwatch
+    try
     {
-        $BlobHeaders.Add('Content-MD5',$Checksum)
+        $SasToken=New-SharedKeySignature @TokenParams
+        $StopWatch.Start()
+
+        if([String]::IsNullOrEmpty($Checksum) -eq $false)
+        {
+            $BlobHeaders.Add('Content-MD5',$Checksum)
+        }
+        $BlobHeaders.Add("Authorization","SharedKey $($StorageAccount):$SasToken")
+        $BlobHeaders.Add('Content-Length',$ContentLength)
+        $RequestParams=@{
+            Uri=$BlobUriBld.Uri;
+            Method='PUT';
+            Headers=$BlobHeaders;
+            Body=$Page;
+            ReturnHeaders=$true
+        }
+        $Result=InvokeAzureStorageRequest @RequestParams
+        $StopWatch.Stop()
+        Write-Verbose "[Set-AzureBlobPage] $($BlobUriBld.Uri) Page Action:$WriteAction Range:$RangeStart - $RangeEnd bytes succeeded in $($StopWatch.Elapsed.TotalSeconds) secs."
+        Write-Output $Result        
     }
-    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccount):$SasToken")
-    $BlobHeaders.Add('Content-Length',$ContentLength)
-    $RequestParams=@{
-        Uri=$BlobUriBld.Uri;
-        Method='PUT';
-        Headers=$BlobHeaders;
-        Body=$Page;
-        ReturnHeaders=$true
+    catch
+    {
+        throw $_
     }
-    $Result=InvokeAzureStorageRequest @RequestParams
-    Write-Output $Result
+    finally
+    {
+        $StopWatch.Stop()
+    }
+
 }
 
 <#
