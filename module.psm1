@@ -225,7 +225,7 @@ Function DownloadBlob
             $BytesRead = $ResponseStream.Read($ReadBuffer, 0, $BufferSize)
             $BytesWritten+=$BytesRead
             $Speed=[Math]::Round(($BytesWritten/1MB)/$Stopwatch.Elapsed.TotalSeconds,2)
-            Write-Verbose "$Activity - Writing Response $ContentType $(Split-Path -Path $Destination -Leaf) - $BytesWritten"
+            #Write-Verbose "$Activity - Writing Response $ContentType $(Split-Path -Path $Destination -Leaf) - $BytesWritten"
             Write-Progress -Activity $Activity -Status "Response $ContentType $(Split-Path -Path $Destination -Leaf) $([Math]::Round($BytesWritten/1MB)) MB written - ($Speed mb/s)" `
                 -PercentComplete $(($BytesWritten/$TotalSize) * 100)
         }
