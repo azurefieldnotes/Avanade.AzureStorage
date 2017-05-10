@@ -173,6 +173,10 @@ Function InvokeAzureStorageRequest
     }
 }
 
+<#
+    .SYNOPSIS
+        Retreives a large file over HTTP
+#>
 Function DownloadBlob
 {
     [CmdletBinding()]
@@ -249,6 +253,10 @@ Function DownloadBlob
     }
 }
 
+<#
+    .SYNOPSIS
+        Retreives an MD5 hash for either a file or arbitrary bytes
+#>
 Function GetMd5Hash
 {
     [CmdletBinding()]
@@ -867,9 +875,12 @@ Function Send-AzureBlob
         Tnh
     .PARAMETER RangeStart
         The byte position of the page range
-    .PARAMETER RangeStart
+    .PARAMETER RangeEnd
         The ending byte position of the page range        
-    .
+    .PARAMETER ClearRange
+        Clear the range of bytes
+    .PARAMETER CalculateChecksum
+        Calculate an MD5 checksum of the content
 #>
 Function Set-AzureBlobPage
 {
