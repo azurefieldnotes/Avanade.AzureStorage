@@ -544,23 +544,50 @@ Function Get-AzureBlobContainerBlobs
     $RequestParams=@{
         Uri=$BlobUriBld.Uri;
         Method='Get';
+        Headers=@{}
+    }
+    $TokenParams=@{
+        Verb='GET';
+        Resource=$BlobUriBld.Uri;
+        Headers=@{
+            "x-ms-date"=[DateTime]::UtcNow.ToString('R');
+            "x-ms-version"=$ApiVersion;
+        };
+        AccessKey=$AccessKey;
     }
     Write-Verbose "[Get-AzureBlobContainerBlobs] Creating SAS Token for $($BlobUriBld.Uri)"
-    $BlobHeaders= @{
-        "x-ms-date"=[DateTime]::UtcNow.ToString('R');
-        "x-ms-version"=$ApiVersion;
-    }
-    $SasToken=New-SharedKeySignature  -Verb GET -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
-    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
-    $RequestParams.Add('Headers',$BlobHeaders)
+    $SasToken=New-SharedKeySignature  @TokenParams
+    $TokenParams.Headers.Keys|ForEach-Object{$RequestParams.Headers[$_]=$TokenParams.Headers[$_]}
+    $RequestParams.Headers.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
     $BlobResult=InvokeAzureStorageRequest @RequestParams|Select-Object -ExpandProperty EnumerationResults
     Write-Verbose "[Get-AzureBlobContainerBlobs] Blob Response Endpoint:$($BlobResult.ServiceEndpoint) container $($BlobResult.ContainerName)"
-    if ($BlobResult -ne $null -and  $BlobResult.Blobs -ne $null)
+    if($BlobResult.Blobs -ne $null -and $BlobResult.Blobs.Blob.Count -gt 0)
     {
         foreach ($Blob in $BlobResult.Blobs.Blob)
         {
             Write-Output $Blob
-        }
+        }    
+        $HasMore=-not [String]::IsNullOrEmpty($BlobResult.NextMarker)
+        while ($HasMore)
+        {
+            #Set the marker in the URI
+            Write-Verbose "[Get-AzureBlobContainerBlobs] Next set available @ $($BlobResult.NextMarker)"
+            $BlobUriBld.Query="restype=container&comp=list&marker=$($BlobResult.NextMarker)"
+            $RequestParams.Uri=$BlobUriBld.Uri
+            $TokenParams.Resource=$BlobUriBld.Uri
+            Write-Verbose "[Get-AzureBlobContainerBlobs] Creating SAS Token for $($BlobUriBld.Uri)"
+            $SasToken=New-SharedKeySignature  @TokenParams        
+            $RequestParams.Headers['Authorization']="SharedKey $($StorageAccountName):$($SasToken)"
+            $BlobResult=InvokeAzureStorageRequest @RequestParams|Select-Object -ExpandProperty EnumerationResults
+            if($BlobResult.Blobs -ne $null -and $BlobResult.Blobs.Blob.Count -gt 0)
+            {
+                foreach ($NextBlob in $BlobResult.Blobs.Blob)
+                {
+                    Write-Output $NextBlob
+                }
+            }
+            $HasMore=-not [String]::IsNullOrEmpty($BlobResult.NextMarker)
+        }    
     }
 }
 
