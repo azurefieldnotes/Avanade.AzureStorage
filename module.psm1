@@ -8,20 +8,23 @@ Function EncodeStorageRequest
     [CmdletBinding()]
     param
     (
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName=$true)]
-        [String]$StringToSign,        
+        [Parameter(Mandatory = $true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
+        [String[]]$StringToSign,        
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true)]
         [String]$SigningKey
     )
     PROCESS
     {
-        $KeyBytes = [System.Convert]::FromBase64String($SigningKey)
-        $HMAC = New-Object System.Security.Cryptography.HMACSHA256
-        $HMAC.Key = $KeyBytes
-        $UnsignedBytes = [System.Text.Encoding]::UTF8.GetBytes($StringToSign)
-        $KeyHash = $HMAC.ComputeHash($UnsignedBytes)
-        $SignedString=[System.Convert]::ToBase64String($KeyHash)
-        Write-Output $SignedString        
+        foreach ($item in $StringToSign)
+        {
+            $KeyBytes = [System.Convert]::FromBase64String($SigningKey)
+            $HMAC = New-Object System.Security.Cryptography.HMACSHA256
+            $HMAC.Key = $KeyBytes
+            $UnsignedBytes = [System.Text.Encoding]::UTF8.GetBytes($item)
+            $KeyHash = $HMAC.ComputeHash($UnsignedBytes)
+            $SignedString=[System.Convert]::ToBase64String($KeyHash)
+            Write-Output $SignedString                    
+        }
     }
 }
 
@@ -571,8 +574,8 @@ Function Get-AzureBlobContainerBlobs
         while ($HasMore)
         {
             #Set the marker in the URI
-            Write-Verbose "[Get-AzureBlobContainerBlobs] Next set available @ $($BlobResult.NextMarker)"
             $BlobUriBld.Query="restype=container&comp=list&marker=$($BlobResult.NextMarker)"
+            Write-Verbose "[Get-AzureBlobContainerBlobs] Next set available @ $($BlobUriBld.Uri)"
             $RequestParams.Uri=$BlobUriBld.Uri
             $TokenParams.Resource=$BlobUriBld.Uri
             Write-Verbose "[Get-AzureBlobContainerBlobs] Creating SAS Token for $($BlobUriBld.Uri)"
