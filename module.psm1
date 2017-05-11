@@ -3,7 +3,7 @@ $Script:UTF8ByteOrderMark=[System.Text.Encoding]::Default.GetString([System.Text
 
 #region Helpers
 
-Function SignRequestString
+Function EncodeStorageRequest
 {
     [CmdletBinding()]
     param
@@ -383,7 +383,7 @@ Function New-SharedKeySignature
         }
         $StringToSign = GetTokenStringToSign @SigningElements
         Write-Verbose "[New-SharedKeySignature] String to Sign:$StringToSign"
-        $SharedAccessSignature=SignRequestString -StringToSign $StringToSign -SigningKey $AccessKey
+        $SharedAccessSignature=EncodeStorageRequest -StringToSign $StringToSign -SigningKey $AccessKey
         Write-Output $SharedAccessSignature        
     }
 }

@@ -4,8 +4,8 @@
 
 # Avanade.AzureStorage
 
-## A module wrapping Azure Storage Service REST Api functionality.
-### BLOB Service Operations
+## A relatively module wrapping Azure Storage Service REST Api functionality.
+* BLOB Service Operations
 #### Functions
     Get-AzureBlobContainer
     Get-AzureBlobContainerAcl
