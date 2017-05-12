@@ -199,6 +199,9 @@ Function InvokeAzureStorageRequest
         $ReturnHeaders,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
         [String]
+        $ContentType,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [String]
         $ExpandProperty
     )
 
@@ -215,6 +218,10 @@ Function InvokeAzureStorageRequest
         {
             $RequestParams.Add('Body',$Body)
         }
+        if([string]::IsNullOrEmpty($ContentType) -eq $false)
+        {
+            $RequestParams.Add('ContentType',$ContentType)
+        }
         $Response=Invoke-WebRequest @RequestParams
         if($Response -ne $null)
         {
@@ -222,7 +229,12 @@ Function InvokeAzureStorageRequest
             {
                 Write-Output $Response.Headers
             }
-            elseif ([String]::IsNullOrEmpty($Response.Content) -eq $false)
+            $ResponseType="application/xml"
+            if($Response.Headers -ne $null -and (-not [String]::IsNullOrEmpty($Response.Headers['Content-Type'])))
+            {
+                $ResponseType=$Response.Headers['Content-Type']
+            }
+            if ([String]::IsNullOrEmpty($Response.Content) -eq $false)
             {
                 $ResultString=$Response.Content
                 if($ResultString.StartsWith($Script:UTF8ByteOrderMark,[System.StringComparison]::Ordinal))
@@ -232,12 +244,26 @@ Function InvokeAzureStorageRequest
                 }
                 if(-not [String]::IsNullOrEmpty($ExpandProperty))
                 {
-                    $Result=$(([Xml]$ResultString)|Select-Object -ExpandProperty $ExpandProperty)
+                    if($ResponseType -like 'application*xml*')
+                    {
+                        $Result=$(([Xml]$ResultString)|Select-Object -ExpandProperty $ExpandProperty)
+                    }
+                    elseif($ResponseType -like 'application/json*')
+                    {
+                        $Result=$(($ResultString|ConvertFrom-Json)|Select-Object -ExpandProperty $ExpandProperty)
+                    }
                     Write-Output $Result
                 }
                 else
                 {
-                    [Xml]$Result=$ResultString
+                    if($ResponseType -like 'application*xml*')
+                    {
+                        [Xml]$Result=$ResultString
+                    }
+                    elseif($ResponseType -like 'application/json*')
+                    {
+                        $Result=$ResultString|ConvertFrom-Json
+                    }                    
                     Write-Output $Result
                 }
             }
@@ -621,6 +647,65 @@ Function Get-AzureTableServiceProperties
         Write-Output $TableResult
     }
 }
+
+Function Get-AzureTableServiceTables
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$StorageAccountDomain="table.core.windows.net",
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ApiVersion="2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ODataServiceVersion='3.0;Netfx',
+        [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ContentType='application/json;odata=nometadata'
+    )
+    BEGIN
+    {
+        $TableHeaders=[ordered]@{
+            'x-ms-version'=$ApiVersion
+            'DataServiceVersion'=$ODataServiceVersion
+            'Accept-Charset'='UTF-8'
+            'Accept'=$ContentType;
+            'Date'=[DateTime]::UtcNow.ToString('R');
+        }
+        $TableUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $TableUriBld=New-Object System.UriBuilder($TableUri)
+        $TableUriBld.Path='tables'
+        $TokenParams=@{
+            Resource=$TableUriBld.Uri;
+            Verb='GET';
+            Headers=$TableHeaders;
+            ContentType=$ContentType;
+            ServiceType='Table';
+            AccessKey=$AccessKey;
+        }
+        $RequestParams=@{
+            Uri=$TableUriBld.Uri;
+            Method='GET';
+            Headers=$TableHeaders;
+            ExpandProperty='value';
+            ContentType=$ContentType;
+        }
+    }
+    PROCESS
+    {
+        $TableSignature=New-SharedKeySignature @TokenParams
+        $RequestParams.Headers.Add('Authorization',"SharedKey $($StorageAccountName):$($TableSignature)")
+        $Response=InvokeAzureStorageRequest @RequestParams
+        Write-Output $Response
+    }
+}
+
 #endregion
 
 #region BLOB
