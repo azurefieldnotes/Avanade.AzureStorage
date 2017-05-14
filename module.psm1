@@ -1,5 +1,24 @@
 
+#region Constants
 $Script:UTF8ByteOrderMark=[System.Text.Encoding]::Default.GetString([System.Text.Encoding]::UTF8.GetPreamble())
+
+$Script:TableAclTemplate=@"
+<SignedIdentifier>   
+<Id>{0}</Id>  
+<AccessPolicy>  
+    <Start>{2}</Start>  
+    <Expiry>{3}</Expiry>  
+    <Permission>{1}</Permission>  
+</AccessPolicy>  
+</SignedIdentifier>
+"@
+$Script:TableAclRequestTemplate=@"
+<?xml version="1.0" encoding="utf-8"?>  
+<SignedIdentifiers>  
+  {0}
+</SignedIdentifiers>
+"@
+#endregion
 
 #region Helpers
 
@@ -594,6 +613,7 @@ Function New-SharedKeySignature
 }
 
 #region Table
+
 Function Get-AzureTableServiceProperties
 {
     [CmdletBinding()]
@@ -801,8 +821,213 @@ Function Get-AzureTableACL
         ExpandProperty="SignedIdentifiers";
     }
     $TableACls=InvokeAzureStorageRequest @RequestParams
+    if($TableACls -ne $null -and  $TableACls.SignedIdentifier -ne $null)
+    {
+        foreach ($item in $TableACls.SignedIdentifier)
+        {
+            Write-Output $item
+        }
+    }
+}
+
+Function Set-AzureTableACL
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$TableName,
+        [Parameter(ValueFromPipeline=$true,Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [ValidateLength(1,4)]
+        [ValidateSet('r','a','u','d','ra','ru','rud','rd','rau','rad','raud','au','aud','ad','ud')]
+        [String]$Acl,
+        [Parameter(ValueFromPipeline=$true,Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [System.DateTime]$Start=[DateTime]::UtcNow,
+        [Parameter(ValueFromPipeline=$true,Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [System.DateTime]$Expiry=($Start.AddDays(365)),
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ODataServiceVersion='3.0;Netfx'        
+    )
+
+    $TableUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $TableUriBld=New-Object System.UriBuilder($TableUri)
+    $TableUriBld.Path=$TableName
+    $TableUriBld.Query = "comp=acl"
+
+    $TableHeaders=[ordered]@{
+        'x-ms-version'=$ApiVersion
+        'DataServiceVersion'=$ODataServiceVersion
+        'Accept-Charset'='UTF-8'
+        'Date'=[DateTime]::UtcNow.ToString('R');
+    }
+    $TokenParams=@{
+        Resource=$TableUriBld.Uri;
+        Verb='PUT';
+        Headers=$TableHeaders;
+        ServiceType='Table';
+        AccessKey=$AccessKey;
+        ContentType='application/xml'
+    }
+    $TableSignature=New-SharedKeySignature @TokenParams
+    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$TableSignature")
+    $AclId=[Convert]::ToBase64String(([Guid]::NewGuid()).ToByteArray())
+    $StartTime=$Start.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fffffffK")
+    $EndTime=$Expiry.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fffffffK")
+    $AclBody=$Script:TableAclRequestTemplate -f  $($Script:TableAclTemplate -f $AclId,$Acl,$StartTime,$EndTime)
+    Write-Verbose "[Set-AzureTableACL] Creating ACL $AclId for $TableUri $AclBody"
+    $RequestParams=@{
+        Uri=$TableUriBld.Uri;
+        Method='PUT';
+        Headers=$TableHeaders;
+        ReturnHeaders=$true;
+        Body=$AclBody;
+        ContentType='application/xml'
+    }
+    $TableACls=InvokeAzureStorageRequest @RequestParams
+    Write-Verbose "[Set-AzureTableACL] Created $AclId successfully."
     Write-Output $TableACls
 }
+
+Function New-AzureTable
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$TableName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ODataServiceVersion='3.0;Netfx',
+        [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ContentType='application/json;odata=nometadata',        
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$ReturnDetail
+    )
+
+    $TableUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $TableUriBld=New-Object System.UriBuilder($TableUri)
+    $TableUriBld.Path='Tables'
+    $ReturnContentPref="return-no-content"
+    if($ReturnDetail.IsPresent)
+    {
+        $ReturnContentPref='return-content'
+    }
+    $TableHeaders=[ordered]@{
+        'x-ms-version'=$ApiVersion
+        'DataServiceVersion'=$ODataServiceVersion
+        'Accept-Charset'='UTF-8'
+        'Accept'=$ContentType
+        'Date'=[DateTime]::UtcNow.ToString('R');
+        'Prefer'=$ReturnContentPref;
+    }
+    
+    $TokenParams=@{
+        Resource=$TableUriBld.Uri;
+        Verb='POST';
+        Headers=$TableHeaders;
+        ServiceType='Table';
+        AccessKey=$AccessKey;
+        ContentType='application/json'
+    }
+    $TableSignature=New-SharedKeySignature @TokenParams
+    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$TableSignature")
+
+    $NewTableBody=New-Object psobject @{
+        'TableName'=$TableName;
+    }
+
+    $RequestParams=@{
+        Uri=$TableUriBld.Uri;
+        Method='POST';
+        Headers=$TableHeaders;
+        ContentType='application/json';
+        Body=$($NewTableBody|ConvertTo-Json);
+    }
+    $NewTableResponse=InvokeAzureStorageRequest @RequestParams
+    if($ReturnDetail.IsPresent)
+    {
+        Write-Output $NewTableResponse
+    }
+}
+
+Function Remove-AzureTable
+{
+    [CmdletBinding()]
+    param
+    ( 
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$TableName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ODataServiceVersion='3.0;Netfx',
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$ReturnDetail
+    )
+
+    $TableUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $TableUriBld=New-Object System.UriBuilder($TableUri)
+    $TableUriBld.Path="Tables('$TableName')"
+
+    $TableHeaders=[ordered]@{
+        'Date'=[DateTime]::UtcNow.ToString('R');
+        'x-ms-version'=$ApiVersion
+        'DataServiceVersion'=$ODataServiceVersion;
+        'Accept'='application/json'
+    }
+            
+    $TokenParams=@{
+        Resource=$TableUriBld.Uri;
+        Verb='DELETE';
+        Headers=$TableHeaders;
+        ServiceType='Table';
+        AccessKey=$AccessKey;
+        ContentType='application/json'
+    }
+    $TableSignature=New-SharedKeySignature @TokenParams
+    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$TableSignature")
+    $RequestParams=@{
+        Uri=$TableUriBld.Uri;
+        Method='DELETE';
+        Headers=$TableHeaders;
+        ContentType='application/json';
+        ReturnHeaders=$true
+    }
+    $DeleteTableResponse=InvokeAzureStorageRequest @RequestParams
+    if($ReturnDetail.IsPresent)
+    {
+        Write-Output $DeleteTableResponse
+    }
+}
+
 
 #endregion
 
