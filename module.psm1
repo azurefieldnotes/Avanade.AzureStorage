@@ -706,9 +706,101 @@ Function Get-AzureTableServiceTables
     }
 }
 
+Function Get-AzureTableServiceStats
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ODataServiceVersion='3.0;Netfx'        
+    )
+    $TableUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $TableUriBld=New-Object System.UriBuilder($TableUri)
+    $TableUriBld.Query = "restype=service&comp=stats"
+
+    $TableHeaders=[ordered]@{
+        'x-ms-version'=$ApiVersion
+        'DataServiceVersion'=$ODataServiceVersion
+        'Accept-Charset'='UTF-8'
+        'Date'=[DateTime]::UtcNow.ToString('R');
+    }   
+    $TokenParams=@{
+        Resource=$TableUriBld.Uri;
+        Verb='GET';
+        Headers=$TableHeaders;
+        ServiceType='Table';
+        AccessKey=$AccessKey;
+    }
+    $TableSignature=New-SharedKeySignature @TokenParams
+    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($TableSignature)")
+    $TableUriBld.Host="$StorageAccountName-secondary.$StorageAccountDomain"
+    $RequestParams=@{
+        Uri=$TableUriBld.Uri;
+        Method='GET';
+        Headers=$TableHeaders;
+        ContentType=$ContentType;
+        ExpandProperty='StorageServiceStats'
+    }
+    $TableStats=InvokeAzureStorageRequest @RequestParams
+    Write-Output $TableStats
+}
+
 #endregion
 
 #region BLOB
+
+Function Get-AzureBlobServiceStats
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "blob.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    $BlobUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $BlobUriBld=New-Object System.UriBuilder($BlobUri)
+    $BlobUriBld.Query = "restype=service&comp=stats"
+    $BlobHeaders = [ordered]@{
+        'x-ms-date'=[DateTime]::UtcNow.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $TokenParams=@{
+        Verb="GET";
+        Resource=$BlobUriBld.Uri;
+        AccessKey=$AccessKey;
+        Headers=$BlobHeaders;
+    }
+    $SasToken = New-SharedKeySignature @TokenParams
+    $BlobUriBld.Host="$StorageAccountName-secondary.$StorageAccountDomain"
+    $RequestParams=@{
+        Uri=$BlobUriBld.Uri;
+        Method='GET';
+        ExpandProperty='StorageServiceStats'
+    }    
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $RequestParams.Add('Headers',$BlobHeaders)
+    $BlobResult=InvokeAzureStorageRequest @RequestParams
+    Write-Output $BlobResult
+
+}
 
 <#
     .SYNOPSIS
