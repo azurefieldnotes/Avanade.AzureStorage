@@ -748,11 +748,60 @@ Function Get-AzureTableServiceStats
         Uri=$TableUriBld.Uri;
         Method='GET';
         Headers=$TableHeaders;
-        ContentType=$ContentType;
         ExpandProperty='StorageServiceStats'
     }
     $TableStats=InvokeAzureStorageRequest @RequestParams
     Write-Output $TableStats
+}
+
+Function Get-AzureTableACL
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$TableName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ODataServiceVersion='3.0;Netfx'        
+    )
+    $TableUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $TableUriBld=New-Object System.UriBuilder($TableUri)
+    $TableUriBld.Path=$TableName
+    $TableUriBld.Query = "comp=acl"
+
+    $TableHeaders=[ordered]@{
+        'x-ms-version'=$ApiVersion
+        'DataServiceVersion'=$ODataServiceVersion
+        'Accept-Charset'='UTF-8'
+        'Date'=[DateTime]::UtcNow.ToString('R');
+    }   
+    $TokenParams=@{
+        Resource=$TableUriBld.Uri;
+        Verb='GET';
+        Headers=$TableHeaders;
+        ServiceType='Table';
+        AccessKey=$AccessKey;
+    }
+    $TableSignature=New-SharedKeySignature @TokenParams
+    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$TableSignature")
+    $RequestParams=@{
+        Uri=$TableUriBld.Uri;
+        Method='GET';
+        Headers=$TableHeaders;
+        ExpandProperty="SignedIdentifiers";
+    }
+    $TableACls=InvokeAzureStorageRequest @RequestParams
+    Write-Output $TableACls
 }
 
 #endregion
