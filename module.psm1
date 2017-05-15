@@ -615,6 +615,10 @@ Function New-SharedKeySignature
 
 #region Table
 
+<#
+    .SYNOPSIS
+        Returns properties for the table service on the storage account
+#>
 Function Get-AzureTableServiceProperties
 {
     [CmdletBinding()]
@@ -727,6 +731,10 @@ Function Get-AzureTableServiceTables
     }
 }
 
+<#
+    .SYNOPSIS
+        Returns statistics for the table service on the storage account
+#>
 Function Get-AzureTableServiceStats
 {
     [CmdletBinding()]
@@ -775,6 +783,10 @@ Function Get-AzureTableServiceStats
     Write-Output $TableStats
 }
 
+<#
+    .SYNOPSIS
+        Returns ACL(s) for the table
+#>
 Function Get-AzureTableACL
 {
     [CmdletBinding()]
@@ -831,6 +843,10 @@ Function Get-AzureTableACL
     }
 }
 
+<#
+    .SYNOPSIS
+        Sets an ACL on the table
+#>
 Function Set-AzureTableACL
 {
     [CmdletBinding()]
@@ -899,6 +915,10 @@ Function Set-AzureTableACL
     Write-Output $TableACls
 }
 
+<#
+    .SYNOPSIS
+        Creates a new table on the storage account
+#>
 Function New-AzureTable
 {
     [CmdletBinding()]
@@ -971,6 +991,10 @@ Function New-AzureTable
     }
 }
 
+<#
+    .SYNOPSIS
+        Deletes the specified azure storage table
+#>
 Function Remove-AzureTable
 {
     [CmdletBinding()]
@@ -1029,16 +1053,23 @@ Function Remove-AzureTable
     }
 }
 
+<#
+    .SYNOPSIS
+        Queries the specified azure storage table
+#>
 Function Get-AzureTableEntity
 {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName='default')]
     param
     ( 
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
         [String]$StorageAccountName,
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
         [String]$TableName,        
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
         [String]$StorageAccountDomain = "table.core.windows.net",
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String]$Filter,
@@ -1048,22 +1079,41 @@ Function Get-AzureTableEntity
         [int]$LimitResults,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [string[]]$Select,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String]$AccessKey,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
         [Switch]$UseHttp,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
+        [String]$PartitionKey,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
+        [String]$RowKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
         [String]$ODataServiceVersion='3.0;Netfx',
         [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [String]$ContentType='application/json;odata=nometadata'
     )
 
     $TableUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
     $TableUriBld=New-Object System.UriBuilder($TableUri)
-    $TableUriBld.Path="$TableName()"
+    if(-not [string]::IsNullOrEmpty($PartitionKey))
+    {
+        if(-not [string]::IsNullOrEmpty($RowKey))
+        {
+            $TableUriBld.Path="$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
+        }
+    }
+    else
+    {
+        $TableUriBld.Path="$TableName()"
+    }
     $TableQuery=""
     $TableHeaders=[ordered]@{
         'x-ms-version'=$ApiVersion
@@ -1075,7 +1125,7 @@ Function Get-AzureTableEntity
     {
         $TableQuery="`$filter=$Filter"
     }
-    if($Top -gt 0)
+    if($PSCmdlet.ParameterSetName -eq 'default' -and $Top -gt 0)
     {
         $TableQuery+="&`$top=$Top"
     }
@@ -1104,7 +1154,7 @@ Function Get-AzureTableEntity
     try
     {
         $Response=Invoke-WebRequest @RequestParams
-        if(-not [string]::IsNullOrEmpty($Response.Content))
+        if(-not [string]::IsNullOrEmpty($Response.Content) -and $PSCmdlet.ParameterSetName -eq 'default')
         {
             $TableResult=$(($Response.Content|ConvertFrom-Json)|Select-Object -ExpandProperty 'value')
             $TotalResults+=$TableResult.Count
@@ -1196,6 +1246,11 @@ Function Get-AzureTableEntity
                 }
             }
         }
+        elseif(-not [string]::IsNullOrEmpty($Response.Content))
+        {
+            $TableResult=$($Response.Content|ConvertFrom-Json)
+            Write-Output $TableResult
+        }
     }
     catch
     {
@@ -1233,6 +1288,10 @@ Function Get-AzureTableEntity
 
 #region BLOB
 
+<#
+    .SYNOPSIS
+        Returns statistics for the blob service on the storage account
+#>
 Function Get-AzureBlobServiceStats
 {
     [CmdletBinding()]
