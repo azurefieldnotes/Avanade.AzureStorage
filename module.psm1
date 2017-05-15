@@ -618,6 +618,16 @@ Function New-SharedKeySignature
 <#
     .SYNOPSIS
         Returns properties for the table service on the storage account
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the storage service API        
 #>
 Function Get-AzureTableServiceProperties
 {
@@ -673,6 +683,20 @@ Function Get-AzureTableServiceProperties
     }
 }
 
+<#
+    .SYNOPSIS
+        Retrieves the list of tables within the storage account
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the storage service API        
+#>
 Function Get-AzureTableServiceTables
 {
     [CmdletBinding()]
@@ -734,6 +758,16 @@ Function Get-AzureTableServiceTables
 <#
     .SYNOPSIS
         Returns statistics for the table service on the storage account
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the storage service API        
 #>
 Function Get-AzureTableServiceStats
 {
@@ -786,6 +820,18 @@ Function Get-AzureTableServiceStats
 <#
     .SYNOPSIS
         Returns ACL(s) for the table
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the storage service API        
 #>
 Function Get-AzureTableACL
 {
@@ -846,6 +892,18 @@ Function Get-AzureTableACL
 <#
     .SYNOPSIS
         Sets an ACL on the table
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the storage service API        
 #>
 Function Set-AzureTableACL
 {
@@ -1291,6 +1349,16 @@ Function Get-AzureTableEntity
 <#
     .SYNOPSIS
         Returns statistics for the blob service on the storage account
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API        
 #>
 Function Get-AzureBlobServiceStats
 {
