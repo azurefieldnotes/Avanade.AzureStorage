@@ -2,6 +2,7 @@
 #region Constants
 $Script:UTF8ByteOrderMark=[System.Text.Encoding]::Default.GetString([System.Text.Encoding]::UTF8.GetPreamble())
 
+#Permissions - QUERY: 'r',ADD: 'a',UPDATE: 'u',DELETE: 'd'
 $Script:TableAclTemplate=@"
 <SignedIdentifier>   
 <Id>{0}</Id>  
@@ -1028,6 +1029,205 @@ Function Remove-AzureTable
     }
 }
 
+Function Get-AzureTableEntity
+{
+    [CmdletBinding()]
+    param
+    ( 
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [String]$TableName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [String]$Filter,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [int]$Top,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [int]$LimitResults,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [string[]]$Select,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
+        [String]$ODataServiceVersion='3.0;Netfx',
+        [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ContentType='application/json;odata=nometadata'
+    )
+
+    $TableUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $TableUriBld=New-Object System.UriBuilder($TableUri)
+    $TableUriBld.Path="$TableName()"
+    $TableQuery=""
+    $TableHeaders=[ordered]@{
+        'x-ms-version'=$ApiVersion
+        'DataServiceVersion'=$ODataServiceVersion
+        'Accept'=$ContentType
+        'Date'=[DateTime]::UtcNow.ToString('R');
+    }
+    if(-not [String]::IsNullOrEmpty($Filter))
+    {
+        $TableQuery="`$filter=$Filter"
+    }
+    if($Top -gt 0)
+    {
+        $TableQuery+="&`$top=$Top"
+    }
+    if(-not [String]::IsNullOrEmpty($TableQuery))
+    {
+        $TableUriBld.Query = $TableQuery
+    }
+    $TokenParams=@{
+        Resource=$TableUriBld.Uri;
+        Verb='GET';
+        Headers=$TableHeaders;
+        ServiceType='Table';
+        AccessKey=$AccessKey;
+        ContentType=$ContentType;
+    }
+    $TotalResults=0
+    $TableSignature=New-SharedKeySignature @TokenParams
+    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$TableSignature")
+    $RequestParams=@{
+        Uri=$TableUriBld.Uri;
+        Method='GET';
+        Headers=$TableHeaders;
+        ContentType=$ContentType
+    }
+    $HasMore=$false
+    try
+    {
+        $Response=Invoke-WebRequest @RequestParams
+        if(-not [string]::IsNullOrEmpty($Response.Content))
+        {
+            $TableResult=$(($Response.Content|ConvertFrom-Json)|Select-Object -ExpandProperty 'value')
+            $TotalResults+=$TableResult.Count
+            Write-Output $TableResult
+            #Are there more values??
+            if(-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextPartitionKey']) -and $Top -eq 0)
+            {
+                Write-Verbose "[Get-AzureTableEntity] More results available @ PartitionKey $($Response.Headers['x-ms-continuation-NextPartitionKey'])"
+                $HasMore=$true
+            }
+            while ($HasMore)
+            {
+                $NextQueryPieces=@()
+                $NextQueryPieces+="NextPartitionKey=$($Response.Headers['x-ms-continuation-NextPartitionKey'])"
+                if(-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextRowKey']))
+                {
+                    $NextQueryPieces+="NextRowKey=$($Response.Headers['x-ms-continuation-NextRowKey'])"
+                }
+                if(-not [string]::IsNullOrEmpty($TableUriBld.Query))
+                {
+                    $TablePieces=$TableUriBld.Query.TrimStart('?').Split('&')
+                    foreach ($TableQuery in $TablePieces)
+                    {
+                        if($TableQuery -notlike 'NextPartitionKey=*' -and $TableQuery -notlike 'NextRowKey=*')
+                        {
+                            $TablePieces+=$TableQuery
+                        }
+                    }
+                }
+                $TableUriBld.Query=$([string]::Join('&',$NextQueryPieces))
+                $RequestParams['Uri']=$TableUriBld.Uri
+                try
+                {
+                    $Response=Invoke-WebRequest @RequestParams
+                    if(-not [string]::IsNullOrEmpty($Response.Content))
+                    {   
+                        $TableResult=$(($Response.Content|ConvertFrom-Json)|Select-Object -ExpandProperty 'value')
+                        $TotalResults+=$TableResult.Count
+                        Write-Output $TableResult
+                        if(-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextPartitionKey']))
+                        {
+                            if($LimitResults -gt 0 -and $TotalResults -ge $LimitResults)
+                            {
+                                Write-Verbose "[Get-AzureTableEntity] Finished Enumerating results at limit $LimitResults"
+                                $HasMore=$false
+                            }
+                            else
+                            {
+                                Write-Verbose "[Get-AzureTableEntity] Total Items:$TotalResults More results available @ Partition Key $(($Response.Headers['x-ms-continuation-NextPartitionKey']))"
+                                $HasMore=$true
+                            }
+                        }
+                        else
+                        {
+                            $HasMore=$false
+                        }
+                    }
+                }
+                catch
+                {
+                    $HasMore=$false
+                    #See if we can unwind an exception from a response
+                    if($_.Exception.Response -ne $null)
+                    {
+                        $ExceptionResponse=$_.Exception.Response
+                        $ErrorStream=$ExceptionResponse.GetResponseStream()
+                        $ErrorStream.Position=0
+                        $StreamReader = New-Object System.IO.StreamReader($ErrorStream)
+                        try
+                        {
+                            $ErrorContent=$StreamReader.ReadToEnd()
+                            $StreamReader.Close()
+                        }
+                        catch
+                        {
+                        }
+                        finally
+                        {
+                            $StreamReader.Close()
+                        }
+                        $ErrorMessage="Error: $($ExceptionResponse.Method) $($ExceptionResponse.ResponseUri) Returned $($ExceptionResponse.StatusCode) $ErrorContent"
+                    }
+                    else
+                    {
+                        $ErrorMessage="An error occurred $_"
+                    }
+                    Write-Verbose "[Get-AzureTableEntity] $ErrorMessage"
+                    throw $ErrorMessage
+                }
+            }
+        }
+    }
+    catch
+    {
+        #See if we can unwind an exception from a response
+        if($_.Exception.Response -ne $null)
+        {
+            $ExceptionResponse=$_.Exception.Response
+            $ErrorStream=$ExceptionResponse.GetResponseStream()
+            $ErrorStream.Position=0
+            $StreamReader = New-Object System.IO.StreamReader($ErrorStream)
+            try
+            {
+                $ErrorContent=$StreamReader.ReadToEnd()
+                $StreamReader.Close()
+            }
+            catch
+            {
+            }
+            finally
+            {
+                $StreamReader.Close()
+            }
+            $ErrorMessage="Error: $($ExceptionResponse.Method) $($ExceptionResponse.ResponseUri) Returned $($ExceptionResponse.StatusCode) $ErrorContent"
+        }
+        else
+        {
+            $ErrorMessage="An error occurred $_"
+        }
+        Write-Verbose "[Get-AzureTableEntity] $ErrorMessage"
+        throw $ErrorMessage
+    }
+}
 
 #endregion
 
