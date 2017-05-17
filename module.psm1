@@ -1342,6 +1342,58 @@ Function Get-AzureTableEntity
     }
 }
 
+Function New-AzureTableEntity
+{
+    [CmdletBinding()]
+    param
+    ( 
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$TableName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
+        [Object[]]$InputObject,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ODataServiceVersion='3.0;Netfx',
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$ReturnDetail
+    )
+}
+
+Function Remove-AzureTableEntity
+{
+    [CmdletBinding()]
+    param
+    ( 
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$TableName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName=$true)]
+        [string]$PartitionKey,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ODataServiceVersion='3.0;Netfx',
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$ReturnDetail
+    )
+}
+
 #endregion
 
 #region BLOB
