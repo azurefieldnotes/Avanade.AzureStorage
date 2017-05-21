@@ -1155,7 +1155,7 @@ Function Get-AzureTableEntity
         [String]$ODataServiceVersion='3.0;Netfx',
         [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
-        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
         [String]$ContentType='application/json;odata=nometadata'
     )
 
@@ -1342,7 +1342,11 @@ Function Get-AzureTableEntity
     }
 }
 
-Function New-AzureTableEntity
+<#
+    .SYNOPSIS
+        Inserts or Updates an Azure Table Entity
+#>
+Function Set-AzureTableEntity
 {
     [CmdletBinding()]
     param
@@ -1364,10 +1368,55 @@ Function New-AzureTableEntity
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [String]$ODataServiceVersion='3.0;Netfx',
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
-        [Switch]$ReturnDetail
+        [Switch]$ReturnDetail,
+        [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
+        [String]$ContentType='application/json;odata=nometadata'
     )
+    BEGIN
+    {
+        $ReturnPref="return-no-content"
+        if($ReturnDetail.IsPresent)
+        {
+            $ReturnPref='return-content'
+        }
+        $TableUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $TableUriBld=New-Object System.UriBuilder($TableUri)
+        $TableUriBld.Path=$TableName      
+        $TableToken=New-SharedKeySignature -Verb POST -Resource $TableUriBld.Uri -ContentType 'application/json' -AccessKey $AccessKey -ServiceType Table
+        $TableHeaders=[ordered]@{
+            'x-ms-version'=$ApiVersion
+            'DataServiceVersion'=$ODataServiceVersion
+            'Accept'=$ContentType
+            'Date'=[DateTime]::UtcNow.ToString('R');
+            'Prefer'=$ReturnPref;
+            'Authorization'="SharedKey $($StorageAccountName):$TableToken"
+        }
+    }
+    PROCESS
+    {
+        foreach ($item in $InputObject)
+        {
+            $RequestParams=@{
+                Method='POST';
+                Uri=$TableUriBld.Uri;
+                Body=$($item|ConvertTo-Json);
+                Headers=$TableHeaders;
+                ContentType=$ContentType;
+            }
+            $Result=InvokeAzureStorageRequest @RequestParams
+            if($ReturnDetail.IsPresent)
+            {
+                Write-Output $Result
+            }
+        }
+    }
 }
 
+<#
+    .SYNOPSIS
+        Removes an Azure Table Entity
+#>
 Function Remove-AzureTableEntity
 {
     [CmdletBinding()]
@@ -1381,6 +1430,10 @@ Function Remove-AzureTableEntity
         [String]$StorageAccountDomain = "table.core.windows.net",
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName=$true)]
         [string]$PartitionKey,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName=$true)]
+        [string]$RowKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [string]$ETag='*',
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
         [String]$AccessKey,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
@@ -1392,6 +1445,30 @@ Function Remove-AzureTableEntity
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
         [Switch]$ReturnDetail
     )
+
+    $TableUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $TableUriBld=New-Object System.UriBuilder($TableUri)
+    $TableUriBld.Path="$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
+       
+    $TableToken=New-SharedKeySignature -Verb 'DELETE' -Resource $TableUriBld.Uri -ServiceType Table -IfMatch $ETag -AccessKey $AccessKey
+    $TableHeaders=[ordered]@{
+        'Date'=[DateTime]::UtcNow.ToString('R');
+        'x-ms-version'=$ApiVersion
+        'DataServiceVersion'=$ODataServiceVersion;
+        'If-Match'=$ETag;
+        'Authorization'="SharedKey $($StorageAccountName):$($TableToken)"
+    }
+    $RequestParams=@{
+        Uri=$TableUriBld.Uri;
+        Headers=$TableHeaders;
+        ReturnHeaders=$ReturnDetail.IsPresent;
+        Method='DELETE'
+    }
+    $Result=InvokeAzureStorageRequest @RequestParams
+    if($ReturnDetail.IsPresent)
+    {
+        Write-Output $Result
+    }
 }
 
 #endregion
