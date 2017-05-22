@@ -1712,7 +1712,7 @@ Function Set-AzureBlobContainerMetadata
     $SasToken=New-SharedKeySignature  -Verb PUT -Resource $BlobUriBld.Uri -AccessKey $AccessKey -Headers $BlobHeaders
     $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
     $RequestParams.Add('Headers',$BlobHeaders)
-    $Result = InvokeAzureStorageRequest @RequestParams
+    InvokeAzureStorageRequest @RequestParams|Out-Null
 }
 
 <#
@@ -2070,7 +2070,7 @@ Function Send-AzureBlob
                             -UseHttp:$UseHttp -CalculateChecksum:$CalculateChecksum -RangeStart $RangeStart -RangeEnd $BytesWritten
                         $Speed=[Math]::Round($BytesWritten/1MB/$Stopwatch.Elapsed.TotalSeconds,2)
                         $Stopwatch.Stop()                            
-                        $DetailedStatus="[Send-AzureBlob] ETag:$($PutPageResult.ETag) Transfer-Encoding:$($PutPageResult.'Transfer-Encoding') Request Id:$($PutPageResult.'x-ms-request-id')"
+                        Write-Verbose "[Send-AzureBlob] ETag:$($PutPageResult.ETag) Transfer-Encoding:$($PutPageResult.'Transfer-Encoding') Request Id:$($PutPageResult.'x-ms-request-id')"
                         Write-Progress -Activity "Updating Page BLOB" -Status "Updating $($BlobUriBld.Uri) $([Math]::Round($BytesWritten/1MB)) MB written - ($Speed mb/s)" -PercentComplete $($BytesWritten/$item.Length * 100)
                         $BytesRead=$InputStream.Read($Buffer,0,$PageBufferSize)
                     }
