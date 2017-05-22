@@ -607,7 +607,7 @@ Function New-SharedKeySignature
         {
             $StringToSign = GetTokenStringToSign @SigningElements            
         }
-        Write-Verbose "[New-SharedKeySignature] String to Sign:$StringToSign"
+        Write-Verbose "[New-SharedKeySignature] String to Sign:`n$StringToSign"
         $SharedAccessSignature=EncodeStorageRequest -StringToSign $StringToSign -SigningKey $AccessKey
         Write-Output $SharedAccessSignature        
     }
@@ -1459,30 +1459,30 @@ Function Remove-AzureTableEntity
     $TableUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
     $TableUriBld=New-Object System.UriBuilder($TableUri)
     $TableUriBld.Path="$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
-    
     $TableHeaders=[ordered]@{
         'Date'=[DateTime]::UtcNow.ToString('R');
         'x-ms-version'=$ApiVersion
         'DataServiceVersion'=$ODataServiceVersion;
         'If-Match'=$ETag;
-        'Authorization'="SharedKey $($StorageAccountName):$($TableToken)"
+        'Accept'="application/json;odata=nometadata";
     }
     $TokenParams=@{
-        Verb='DELETE';
         Resource=$TableUriBld.Uri;
+        Verb='DELETE';
+        Date=[DateTime]::UtcNow.ToString('R');
         Headers=$TableHeaders;
         ServiceType='Table';
         AccessKey=$AccessKey;
         ContentType='application/json'
-        IfMatch=$ETag;
-    }    
-           
+    }   
     $TableToken=New-SharedKeySignature @TokenParams
+    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($TableToken)")
     $RequestParams=@{
         Uri=$TableUriBld.Uri;
         Headers=$TableHeaders;
         ReturnHeaders=$ReturnDetail.IsPresent;
-        Method='DELETE'
+        Method='DELETE';
+        ContentType='application/json';
     }
     $Result=InvokeAzureStorageRequest @RequestParams
     if($ReturnDetail.IsPresent)
