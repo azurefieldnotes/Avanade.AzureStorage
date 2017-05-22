@@ -1383,15 +1383,25 @@ Function Set-AzureTableEntity
         $TableUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
         $TableUriBld=New-Object System.UriBuilder($TableUri)
         $TableUriBld.Path=$TableName      
-        $TableToken=New-SharedKeySignature -Verb POST -Resource $TableUriBld.Uri -ContentType 'application/json' -AccessKey $AccessKey -ServiceType Table
+        
         $TableHeaders=[ordered]@{
             'x-ms-version'=$ApiVersion
             'DataServiceVersion'=$ODataServiceVersion
             'Accept'=$ContentType
             'Date'=[DateTime]::UtcNow.ToString('R');
             'Prefer'=$ReturnPref;
-            'Authorization'="SharedKey $($StorageAccountName):$TableToken"
         }
+        
+        $TokenParams=@{
+            Resource=$TableUriBld.Uri;
+            Verb='POST';
+            Headers=$TableHeaders;
+            ServiceType='Table';
+            AccessKey=$AccessKey;
+            ContentType=$ContentType;
+        }        
+        $TableToken=New-SharedKeySignature @TokenParams
+        $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$TableToken")
     }
     PROCESS
     {
@@ -1449,8 +1459,7 @@ Function Remove-AzureTableEntity
     $TableUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
     $TableUriBld=New-Object System.UriBuilder($TableUri)
     $TableUriBld.Path="$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
-       
-    $TableToken=New-SharedKeySignature -Verb 'DELETE' -Resource $TableUriBld.Uri -ServiceType Table -IfMatch $ETag -AccessKey $AccessKey
+    
     $TableHeaders=[ordered]@{
         'Date'=[DateTime]::UtcNow.ToString('R');
         'x-ms-version'=$ApiVersion
@@ -1458,6 +1467,17 @@ Function Remove-AzureTableEntity
         'If-Match'=$ETag;
         'Authorization'="SharedKey $($StorageAccountName):$($TableToken)"
     }
+    $TokenParams=@{
+        Verb='DELETE';
+        Resource=$TableUriBld.Uri;
+        Headers=$TableHeaders;
+        ServiceType='Table';
+        AccessKey=$AccessKey;
+        ContentType='application/json'
+        IfMatch=$ETag;
+    }    
+           
+    $TableToken=New-SharedKeySignature @TokenParams
     $RequestParams=@{
         Uri=$TableUriBld.Uri;
         Headers=$TableHeaders;
