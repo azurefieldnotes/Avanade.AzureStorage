@@ -1410,7 +1410,7 @@ Function Get-AzureTableEntity
     .PARAMETER ODataServiceVersion
         The OData service version      
 #>
-Function Set-AzureTableEntity
+Function New-AzureTableEntity
 {
     [CmdletBinding()]
     param
