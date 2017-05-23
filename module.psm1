@@ -831,7 +831,9 @@ Function Get-AzureTableServiceStats
     .PARAMETER UseHttp
         Use Insecure requests 
     .PARAMETER ApiVersion
-        The version of the storage service API        
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version     
 #>
 Function Get-AzureTableACL
 {
@@ -903,7 +905,9 @@ Function Get-AzureTableACL
     .PARAMETER UseHttp
         Use Insecure requests 
     .PARAMETER ApiVersion
-        The version of the storage service API        
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version       
 #>
 Function Set-AzureTableACL
 {
@@ -976,6 +980,20 @@ Function Set-AzureTableACL
 <#
     .SYNOPSIS
         Creates a new table on the storage account
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version       
 #>
 Function New-AzureTable
 {
@@ -1052,6 +1070,20 @@ Function New-AzureTable
 <#
     .SYNOPSIS
         Deletes the specified azure storage table
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version      
 #>
 Function Remove-AzureTable
 {
@@ -1114,237 +1146,269 @@ Function Remove-AzureTable
 <#
     .SYNOPSIS
         Queries the specified azure storage table
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version       
 #>
 Function Get-AzureTableEntity
 {
-    [CmdletBinding(DefaultParameterSetName='default')]
+    [CmdletBinding(DefaultParameterSetName = 'default')]
     param
     ( 
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
         [String]$StorageAccountName,
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
         [String]$TableName,        
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
         [String]$StorageAccountDomain = "table.core.windows.net",
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
         [String]$Filter,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
         [int]$Top,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
         [int]$LimitResults,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
         [string[]]$Select,
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
         [String]$AccessKey,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
         [Switch]$UseHttp,
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
         [String]$PartitionKey,
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
         [String]$RowKey,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
         [String]$ApiVersion = "2016-05-31",
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
-        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
-        [String]$ODataServiceVersion='3.0;Netfx',
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
+        [String]$ODataServiceVersion = '3.0;Netfx',
         [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='uniqueid')]
-        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
-        [String]$ContentType='application/json;odata=nometadata'
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'uniqueid')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'default')]
+        [String]$ContentType = 'application/json;odata=nometadata'
     )
-
-    $TableUri=GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
-    $TableUriBld=New-Object System.UriBuilder($TableUri)
-    if(-not [string]::IsNullOrEmpty($PartitionKey))
+    PROCESS
     {
-        if(-not [string]::IsNullOrEmpty($RowKey))
+        $TableUri = GetStorageUri -AccountName "$StorageAccountName" -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $TableUriBld = New-Object System.UriBuilder($TableUri)
+        if (-not [string]::IsNullOrEmpty($PartitionKey))
         {
-            $TableUriBld.Path="$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
-        }
-    }
-    else
-    {
-        $TableUriBld.Path="$TableName()"
-    }
-    $TableQuery=""
-    $TableHeaders=[ordered]@{
-        'x-ms-version'=$ApiVersion
-        'DataServiceVersion'=$ODataServiceVersion
-        'Accept'=$ContentType
-        'Date'=[DateTime]::UtcNow.ToString('R');
-    }
-    if(-not [String]::IsNullOrEmpty($Filter))
-    {
-        $TableQuery="`$filter=$Filter"
-    }
-    if($PSCmdlet.ParameterSetName -eq 'default' -and $Top -gt 0)
-    {
-        $TableQuery+="&`$top=$Top"
-    }
-    if(-not [String]::IsNullOrEmpty($TableQuery))
-    {
-        $TableUriBld.Query = $TableQuery
-    }
-    $TokenParams=@{
-        Resource=$TableUriBld.Uri;
-        Verb='GET';
-        Headers=$TableHeaders;
-        ServiceType='Table';
-        AccessKey=$AccessKey;
-        ContentType=$ContentType;
-    }
-    $TotalResults=0
-    $TableSignature=New-SharedKeySignature @TokenParams
-    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$TableSignature")
-    $RequestParams=@{
-        Uri=$TableUriBld.Uri;
-        Method='GET';
-        Headers=$TableHeaders;
-        ContentType=$ContentType
-    }
-    $HasMore=$false
-    try
-    {
-        $Response=Invoke-WebRequest @RequestParams
-        if(-not [string]::IsNullOrEmpty($Response.Content) -and $PSCmdlet.ParameterSetName -eq 'default')
-        {
-            $TableResult=$(($Response.Content|ConvertFrom-Json)|Select-Object -ExpandProperty 'value')
-            $TotalResults+=$TableResult.Count
-            Write-Output $TableResult
-            #Are there more values??
-            if(-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextPartitionKey']) -and $Top -eq 0)
+            if (-not [string]::IsNullOrEmpty($RowKey))
             {
-                Write-Verbose "[Get-AzureTableEntity] More results available @ PartitionKey $($Response.Headers['x-ms-continuation-NextPartitionKey'])"
-                $HasMore=$true
+                $TableUriBld.Path = "$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
             }
-            while ($HasMore)
-            {
-                $NextQueryPieces=@()
-                $NextQueryPieces+="NextPartitionKey=$($Response.Headers['x-ms-continuation-NextPartitionKey'])"
-                if(-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextRowKey']))
-                {
-                    $NextQueryPieces+="NextRowKey=$($Response.Headers['x-ms-continuation-NextRowKey'])"
-                }
-                if(-not [string]::IsNullOrEmpty($TableUriBld.Query))
-                {
-                    $TablePieces=$TableUriBld.Query.TrimStart('?').Split('&')
-                    foreach ($TableQuery in $TablePieces)
-                    {
-                        if($TableQuery -notlike 'NextPartitionKey=*' -and $TableQuery -notlike 'NextRowKey=*')
-                        {
-                            $TablePieces+=$TableQuery
-                        }
-                    }
-                }
-                $TableUriBld.Query=$([string]::Join('&',$NextQueryPieces))
-                $RequestParams['Uri']=$TableUriBld.Uri
-                try
-                {
-                    $Response=Invoke-WebRequest @RequestParams
-                    if(-not [string]::IsNullOrEmpty($Response.Content))
-                    {   
-                        $TableResult=$(($Response.Content|ConvertFrom-Json)|Select-Object -ExpandProperty 'value')
-                        $TotalResults+=$TableResult.Count
-                        Write-Output $TableResult
-                        if(-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextPartitionKey']))
-                        {
-                            if($LimitResults -gt 0 -and $TotalResults -ge $LimitResults)
-                            {
-                                Write-Verbose "[Get-AzureTableEntity] Finished Enumerating results at limit $LimitResults"
-                                $HasMore=$false
-                            }
-                            else
-                            {
-                                Write-Verbose "[Get-AzureTableEntity] Total Items:$TotalResults More results available @ Partition Key $(($Response.Headers['x-ms-continuation-NextPartitionKey']))"
-                                $HasMore=$true
-                            }
-                        }
-                        else
-                        {
-                            $HasMore=$false
-                        }
-                    }
-                }
-                catch
-                {
-                    $HasMore=$false
-                    #See if we can unwind an exception from a response
-                    if($_.Exception.Response -ne $null)
-                    {
-                        $ExceptionResponse=$_.Exception.Response
-                        $ErrorStream=$ExceptionResponse.GetResponseStream()
-                        $ErrorStream.Position=0
-                        $StreamReader = New-Object System.IO.StreamReader($ErrorStream)
-                        try
-                        {
-                            $ErrorContent=$StreamReader.ReadToEnd()
-                            $StreamReader.Close()
-                        }
-                        catch
-                        {
-                        }
-                        finally
-                        {
-                            $StreamReader.Close()
-                        }
-                        $ErrorMessage="Error: $($ExceptionResponse.Method) $($ExceptionResponse.ResponseUri) Returned $($ExceptionResponse.StatusCode) $ErrorContent"
-                    }
-                    else
-                    {
-                        $ErrorMessage="An error occurred $_"
-                    }
-                    Write-Verbose "[Get-AzureTableEntity] $ErrorMessage"
-                    throw $ErrorMessage
-                }
-            }
-        }
-        elseif(-not [string]::IsNullOrEmpty($Response.Content))
-        {
-            $TableResult=$($Response.Content|ConvertFrom-Json)
-            Write-Output $TableResult
-        }
-    }
-    catch
-    {
-        #See if we can unwind an exception from a response
-        if($_.Exception.Response -ne $null)
-        {
-            $ExceptionResponse=$_.Exception.Response
-            $ErrorStream=$ExceptionResponse.GetResponseStream()
-            $ErrorStream.Position=0
-            $StreamReader = New-Object System.IO.StreamReader($ErrorStream)
-            try
-            {
-                $ErrorContent=$StreamReader.ReadToEnd()
-                $StreamReader.Close()
-            }
-            catch
-            {
-            }
-            finally
-            {
-                $StreamReader.Close()
-            }
-            $ErrorMessage="Error: $($ExceptionResponse.Method) $($ExceptionResponse.ResponseUri) Returned $($ExceptionResponse.StatusCode) $ErrorContent"
         }
         else
         {
-            $ErrorMessage="An error occurred $_"
+            $TableUriBld.Path = "$TableName()"
         }
-        Write-Verbose "[Get-AzureTableEntity] $ErrorMessage"
-        throw $ErrorMessage
+        $TableQuery = ""
+        $TableHeaders = [ordered]@{
+            'x-ms-version'       = $ApiVersion
+            'DataServiceVersion' = $ODataServiceVersion
+            'Accept'             = $ContentType
+            'Date'               = [DateTime]::UtcNow.ToString('R');
+        }
+        if (-not [String]::IsNullOrEmpty($Filter))
+        {
+            $TableQuery = "`$filter=$Filter"
+        }
+        if ($PSCmdlet.ParameterSetName -eq 'default' -and $Top -gt 0)
+        {
+            $TableQuery += "&`$top=$Top"
+        }
+        if (-not [String]::IsNullOrEmpty($TableQuery))
+        {
+            $TableUriBld.Query = $TableQuery
+        }
+        $TokenParams = @{
+            Resource    = $TableUriBld.Uri;
+            Verb        = 'GET';
+            Headers     = $TableHeaders;
+            ServiceType = 'Table';
+            AccessKey   = $AccessKey;
+            ContentType = $ContentType;
+        }
+        $TotalResults = 0
+        $TableSignature = New-SharedKeySignature @TokenParams
+        $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$TableSignature")
+        $RequestParams = @{
+            Uri         = $TableUriBld.Uri;
+            Method      = 'GET';
+            Headers     = $TableHeaders;
+            ContentType = $ContentType
+        }
+        $HasMore = $false
+        try
+        {
+            $Response = Invoke-WebRequest @RequestParams
+            if (-not [string]::IsNullOrEmpty($Response.Content) -and $PSCmdlet.ParameterSetName -eq 'default')
+            {
+                $TableResult = $(($Response.Content|ConvertFrom-Json)|Select-Object -ExpandProperty 'value')
+                $TotalResults += $TableResult.Count
+                Write-Output $TableResult
+                #Are there more values??
+                if (-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextPartitionKey']) -and $Top -eq 0)
+                {
+                    Write-Verbose "[Get-AzureTableEntity] More results available @ PartitionKey $($Response.Headers['x-ms-continuation-NextPartitionKey'])"
+                    $HasMore = $true
+                }
+                while ($HasMore)
+                {
+                    $NextQueryPieces = @()
+                    $NextQueryPieces += "NextPartitionKey=$($Response.Headers['x-ms-continuation-NextPartitionKey'])"
+                    if (-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextRowKey']))
+                    {
+                        $NextQueryPieces += "NextRowKey=$($Response.Headers['x-ms-continuation-NextRowKey'])"
+                    }
+                    if (-not [string]::IsNullOrEmpty($TableUriBld.Query))
+                    {
+                        $TablePieces = $TableUriBld.Query.TrimStart('?').Split('&')
+                        foreach ($TableQuery in $TablePieces)
+                        {
+                            if ($TableQuery -notlike 'NextPartitionKey=*' -and $TableQuery -notlike 'NextRowKey=*')
+                            {
+                                $TablePieces += $TableQuery
+                            }
+                        }
+                    }
+                    $TableUriBld.Query = $([string]::Join('&',$NextQueryPieces))
+                    $RequestParams['Uri'] = $TableUriBld.Uri
+                    try
+                    {
+                        $Response = Invoke-WebRequest @RequestParams
+                        if (-not [string]::IsNullOrEmpty($Response.Content))
+                        {   
+                            $TableResult = $(($Response.Content|ConvertFrom-Json)|Select-Object -ExpandProperty 'value')
+                            $TotalResults += $TableResult.Count
+                            Write-Output $TableResult
+                            if (-not [string]::IsNullOrEmpty($Response.Headers['x-ms-continuation-NextPartitionKey']))
+                            {
+                                if ($LimitResults -gt 0 -and $TotalResults -ge $LimitResults)
+                                {
+                                    Write-Verbose "[Get-AzureTableEntity] Finished Enumerating results at limit $LimitResults"
+                                    $HasMore = $false
+                                }
+                                else
+                                {
+                                    Write-Verbose "[Get-AzureTableEntity] Total Items:$TotalResults More results available @ Partition Key $(($Response.Headers['x-ms-continuation-NextPartitionKey']))"
+                                    $HasMore = $true
+                                }
+                            }
+                            else
+                            {
+                                $HasMore = $false
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        $HasMore = $false
+                        #See if we can unwind an exception from a response
+                        if ($_.Exception.Response -ne $null)
+                        {
+                            $ExceptionResponse = $_.Exception.Response
+                            $ErrorStream = $ExceptionResponse.GetResponseStream()
+                            $ErrorStream.Position = 0
+                            $StreamReader = New-Object System.IO.StreamReader($ErrorStream)
+                            try
+                            {
+                                $ErrorContent = $StreamReader.ReadToEnd()
+                                $StreamReader.Close()
+                            }
+                            catch
+                            {
+                            }
+                            finally
+                            {
+                                $StreamReader.Close()
+                            }
+                            $ErrorMessage = "Error: $($ExceptionResponse.Method) $($ExceptionResponse.ResponseUri) Returned $($ExceptionResponse.StatusCode) $ErrorContent"
+                        }
+                        else
+                        {
+                            $ErrorMessage = "An error occurred $_"
+                        }
+                        Write-Verbose "[Get-AzureTableEntity] $ErrorMessage"
+                        throw $ErrorMessage
+                    }
+                }
+            }
+            elseif (-not [string]::IsNullOrEmpty($Response.Content))
+            {
+                $TableResult = $($Response.Content|ConvertFrom-Json)
+                Write-Output $TableResult
+            }
+        }
+        catch
+        {
+            #See if we can unwind an exception from a response
+            if ($_.Exception.Response -ne $null)
+            {
+                $ExceptionResponse = $_.Exception.Response
+                $ErrorStream = $ExceptionResponse.GetResponseStream()
+                $ErrorStream.Position = 0
+                $StreamReader = New-Object System.IO.StreamReader($ErrorStream)
+                try
+                {
+                    $ErrorContent = $StreamReader.ReadToEnd()
+                    $StreamReader.Close()
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    $StreamReader.Close()
+                }
+                $ErrorMessage = "Error: $($ExceptionResponse.Method) $($ExceptionResponse.ResponseUri) Returned $($ExceptionResponse.StatusCode) $ErrorContent"
+            }
+            else
+            {
+                $ErrorMessage = "An error occurred $_"
+            }
+            Write-Verbose "[Get-AzureTableEntity] $ErrorMessage"
+            throw $ErrorMessage
+        }
     }
 }
 
 <#
     .SYNOPSIS
         Inserts or Updates an Azure Table Entity
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER InputObject
+        The entity to insert or update
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version      
 #>
 Function Set-AzureTableEntity
 {
@@ -1426,6 +1490,26 @@ Function Set-AzureTableEntity
 <#
     .SYNOPSIS
         Removes an Azure Table Entity
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER PartitionKey
+        The entity partition key
+    .PARAMETER RowKey
+        The entity row key                
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER ETag
+        An optional ETag for verification
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version
 #>
 Function Remove-AzureTableEntity
 {
@@ -1456,38 +1540,41 @@ Function Remove-AzureTableEntity
         [Switch]$ReturnDetail
     )
 
-    $TableUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
-    $TableUriBld=New-Object System.UriBuilder($TableUri)
-    $TableUriBld.Path="$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
-    $TableHeaders=[ordered]@{
-        'Date'=[DateTime]::UtcNow.ToString('R');
-        'x-ms-version'=$ApiVersion
-        'DataServiceVersion'=$ODataServiceVersion;
-        'If-Match'=$ETag;
-        'Accept'="application/json;odata=nometadata";
-    }
-    $TokenParams=@{
-        Resource=$TableUriBld.Uri;
-        Verb='DELETE';
-        Date=[DateTime]::UtcNow.ToString('R');
-        Headers=$TableHeaders;
-        ServiceType='Table';
-        AccessKey=$AccessKey;
-        ContentType='application/json'
-    }   
-    $TableToken=New-SharedKeySignature @TokenParams
-    $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($TableToken)")
-    $RequestParams=@{
-        Uri=$TableUriBld.Uri;
-        Headers=$TableHeaders;
-        ReturnHeaders=$ReturnDetail.IsPresent;
-        Method='DELETE';
-        ContentType='application/json';
-    }
-    $Result=InvokeAzureStorageRequest @RequestParams
-    if($ReturnDetail.IsPresent)
+    PROCESS
     {
-        Write-Output $Result
+        $TableUri = GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $TableUriBld = New-Object System.UriBuilder($TableUri)
+        $TableUriBld.Path = "$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
+        $TableHeaders = [ordered]@{
+            'Date' = [DateTime]::UtcNow.ToString('R');
+            'x-ms-version' = $ApiVersion
+            'DataServiceVersion' = $ODataServiceVersion;
+            'If-Match' = $ETag;
+            'Accept' = "application/json;odata=nometadata";
+        }
+        $TokenParams = @{
+            Resource = $TableUriBld.Uri;
+            Verb = 'DELETE';
+            Date = [DateTime]::UtcNow.ToString('R');
+            Headers = $TableHeaders;
+            ServiceType = 'Table';
+            AccessKey = $AccessKey;
+            ContentType = 'application/json'
+        }   
+        $TableToken = New-SharedKeySignature @TokenParams
+        $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($TableToken)")
+        $RequestParams = @{
+            Uri = $TableUriBld.Uri;
+            Headers = $TableHeaders;
+            ReturnHeaders = $ReturnDetail.IsPresent;
+            Method = 'DELETE';
+            ContentType = 'application/json';
+        }
+        $Result = InvokeAzureStorageRequest @RequestParams
+        if ($ReturnDetail.IsPresent)
+        {
+            Write-Output $Result
+        }        
     }
 }
 
