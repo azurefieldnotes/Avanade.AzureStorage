@@ -54,7 +54,7 @@ Function GetTokenStringToSign
     param
     (
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
-        [ValidateSet('GET','PUT','DELETE','POST','OPTIONS')]
+        [ValidateSet('GET','PUT','DELETE','POST','OPTIONS','MERGE')]
         [string]
         $Verb="GET",
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName = $true)]
@@ -162,7 +162,7 @@ Function GetTableTokenStringToSign
     param
     (
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
-        [ValidateSet('GET','PUT','DELETE','POST','OPTIONS')]
+        [ValidateSet('GET','PUT','DELETE','POST','OPTIONS','MERGE')]
         [string]
         $Verb="GET",
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName = $true)]
@@ -477,7 +477,7 @@ Function New-SharedKeySignature
     param
     (
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
-        [ValidateSet('GET','PUT','DELETE','POST','OPTIONS')]
+        [ValidateSet('GET','PUT','DELETE','POST','OPTIONS','MERGE')]
         [string]
         $Verb="GET",
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true)]
@@ -1392,7 +1392,7 @@ Function Get-AzureTableEntity
 
 <#
     .SYNOPSIS
-        Inserts or Updates an Azure Table Entity
+        Inserts an Azure Table Entity
     .PARAMETER StorageAccountName
         The storage account name
     .PARAMETER TableName
@@ -1483,6 +1483,215 @@ Function New-AzureTableEntity
             {
                 Write-Output $Result
             }
+        }
+    }
+}
+
+<#
+    .SYNOPSIS
+        Updates an Azure Table Entity
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER PartitionKey
+        The entity partition key
+    .PARAMETER RowKey
+        The entity row key
+    .PARAMETER Entity
+        The entity to update
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER ETag
+        An optional ETag for verification
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version
+
+#>
+Function Set-AzureTableEntity
+{
+    [CmdletBinding()]
+    param
+    ( 
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$TableName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$PartitionKey,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$RowKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ETag='*',                               
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipeline = $true,ValueFromPipelineByPropertyName = $true)]
+        [Object]$Entity,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ODataServiceVersion = '3.0;Netfx',
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [Switch]$ReturnDetail,
+        [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ContentType = 'application/json;odata=nometadata'
+    )
+    BEGIN
+    {
+        $TableUri = GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $TableUriBld = New-Object System.UriBuilder($TableUri)
+        $TableUriBld.Path = "$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
+        $TableHeaders = [ordered]@{
+            'Date'               = [DateTime]::UtcNow.ToString('R');
+            'x-ms-version'       = $ApiVersion
+            'DataServiceVersion' = $ODataServiceVersion;
+            'If-Match'           = $ETag;
+            'Accept-Content'     = 'UTF-8';
+            'Accept'             = $ContentType;
+        }
+        $TokenParams = @{
+            Resource    = $TableUriBld.Uri;
+            Verb        = 'PUT';
+            Date        = $TableHeaders.Date;
+            ServiceType = 'Table';
+            AccessKey   = $AccessKey;
+            ContentType = $ContentType;
+        }   
+        $TableToken = New-SharedKeySignature @TokenParams
+    }
+    PROCESS
+    {
+        $ContentString=$($Entity|ConvertTo-Json)
+        $ContentLength=[System.Text.Encoding]::UTF8.GetBytes($ContentString).Length
+        $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($TableToken)")
+        $TableHeaders.Add('Content-Length',$ContentLength)
+        $RequestParams = @{
+            Method        = 'PUT';
+            Uri           = $TableUriBld.Uri;
+            Body          = $ContentString;
+            Headers       = $TableHeaders;
+            ContentType   = $ContentType;
+            ReturnHeaders = $true;
+            ErrorAction   = 'Stop';
+        }
+        $Result = InvokeAzureStorageRequest @RequestParams
+        if ($ReturnDetail.IsPresent)
+        {
+            Write-Output $Result
+        }
+    }
+}
+
+<#
+    .SYNOPSIS
+        Merges an Azure Table Entity
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER TableName
+        The name of the table
+    .PARAMETER PartitionKey
+        The entity partition key
+    .PARAMETER RowKey
+        The entity row key
+    .PARAMETER Entity
+        The entity to update                     
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER ETag
+        An optional ETag for verification
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage API version
+    .PARAMETER ODataServiceVersion
+        The OData service version
+    .PARAMETER ReturnDetail
+        Return detail of the operation
+#>
+Function Merge-AzureTableEntity
+{
+    [CmdletBinding()]
+    param
+    ( 
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$TableName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$PartitionKey,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$RowKey,                        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ETag='*',
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "table.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipeline = $true,ValueFromPipelineByPropertyName = $true)]
+        [Object]$Entity,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ODataServiceVersion = '3.0;Netfx',
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [Switch]$ReturnDetail,
+        [ValidateSet('application/json;odata=nometadata','application/json;odata=minimalmetadata','application/json;odata=fullmetadata')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ContentType = 'application/json;odata=nometadata'
+    )
+    BEGIN
+    {
+        $TableUri = GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $TableUriBld = New-Object System.UriBuilder($TableUri)
+        $TableUriBld.Path = "$TableName(PartitionKey='$PartitionKey',RowKey='$RowKey')"
+        $TableHeaders = [ordered]@{
+            'Date'               = [DateTime]::UtcNow.ToString('R');
+            'x-ms-version'       = $ApiVersion
+            'DataServiceVersion' = $ODataServiceVersion;
+            'If-Match'           = $ETag;
+            'Accept-Content'     = 'UTF-8';
+            'Accept'             = $ContentType;
+        }
+        $TokenParams = @{
+            Resource    = $TableUriBld.Uri;
+            Verb        = 'MERGE';
+            Date        = $TableHeaders.Date;
+            ServiceType = 'Table';
+            AccessKey   = $AccessKey;
+            ContentType = $ContentType;
+        }  
+        $TableToken = New-SharedKeySignature @TokenParams
+        $TableHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($TableToken)")
+    }
+    PROCESS
+    {
+        $RequestParams = @{
+            Method        = 'MERGE';
+            Uri           = $TableUriBld.Uri;
+            Body          = $($Entity|ConvertTo-Json);
+            Headers       = $TableHeaders;
+            ContentType   = $ContentType;
+            ReturnHeaders = $true;
+        }
+        $Result = InvokeAzureStorageRequest @RequestParams
+        if ($ReturnDetail.IsPresent)
+        {
+            Write-Output $Result
         }
     }
 }
