@@ -4217,7 +4217,7 @@ Function New-AzureFileServiceDirectory
         [String]$StorageAccountName,
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
         [String]$ShareName,        
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
         [String]$Path,
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
         [String]$Name,         
@@ -4232,11 +4232,43 @@ Function New-AzureFileServiceDirectory
     )
     BEGIN
     {
-
+        $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $FileUriBld=New-Object System.UriBuilder($FileUri)
+        $FileUriBld.Query='restype=directory'
+        $FileHeaders=@{
+            'x-ms-date'=[DateTime]::UtcNow.ToString('R');
+            'x-ms-version'=$ApiVersion;
+        }        
     }
     PROCESS
     {
-
+            if ([String]::IsNullOrEmpty($Path))
+            {
+                $RelativePath=$Name
+            }
+            else
+            {
+                $RelativePath="$($Path.TrimStart('/'))/${Name}"
+            }
+            $FileUriBld.Path="${ShareName}/${RelativePath}"
+            $TokenParams=@{
+                Verb="PUT";
+                Resource=$FileUriBld.Uri;
+                AccessKey=$AccessKey;
+                Headers=$FileHeaders;
+                ContentType='application/octet-stream'
+            }
+            $SasToken=New-SharedKeySignature @TokenParams
+            $FileHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($SasToken)")
+            $NewDirParams=@{
+                Uri=$FileUriBld.Uri;
+                Headers=$FileHeaders;
+                Method='PUT';
+                ReturnHeaders=$true;
+                ContentType='application/octet-stream'
+            }
+            $Result=InvokeAzureStorageRequest @NewDirParams
+            Write-Output $Result            
     }
 }
 
