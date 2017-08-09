@@ -219,7 +219,7 @@ Function InvokeAzureStorageRequest
         $ReturnHeaders,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
         [String]
-        $ContentType,        
+        $ContentType='application/octet-stream',        
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
         [String]
         $ExpandProperty
@@ -227,7 +227,7 @@ Function InvokeAzureStorageRequest
 
     PROCESS
     {
-        $RequestParams=@{
+        $WebParams=@{
             Method=$Method;
             Uri=$Uri;
             Headers=$Headers;
@@ -236,13 +236,13 @@ Function InvokeAzureStorageRequest
         }
         if($Body -ne $null)
         {
-            $RequestParams.Add('Body',$Body)
+            $WebParams.Add('Body',$Body)
         }
         if([string]::IsNullOrEmpty($ContentType) -eq $false)
         {
-            $RequestParams.Add('ContentType',$ContentType)
+            $WebParams.Add('ContentType',$ContentType)
         }
-        $Response=Invoke-WebRequest @RequestParams
+        $Response=Invoke-WebRequest @WebParams
         if($Response -ne $null)
         {
             if($ReturnHeaders.IsPresent -and $Response.Headers -ne $null)
@@ -3874,6 +3874,7 @@ Function Receive-AzureFileServiceFile
                 Resource=$DownloadUriBld.Uri;
                 AccessKey=$AccessKey;
                 Headers=$FileHeaders;
+                ServiceType='File';
             }
             $SasToken=New-SharedKeySignature @TokenParams
             $FileHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($SasToken)")
@@ -3890,6 +3891,126 @@ Function Receive-AzureFileServiceFile
 
 }
 
+Function Set-AzureFileServiceFileRange
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [String]$StorageAccountDomain = "file.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [String]$ShareName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [String]$Path,        
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [long]$RangeStart,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [long]$RangeEnd,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]        
+        [String]$ContentType='application/octet-stream',
+        [Parameter(Mandatory = $true,ValueFromPipeline = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [System.Byte[]]$RangeData,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [String]$ApiVersion = "2016-05-31",
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'clear')]
+        [Switch]$ClearRange,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName = 'update')]
+        [Switch]$CalculateChecksum
+    )
+    
+    $Checksum = [String]::Empty
+
+    if ($PSCmdlet.ParameterSetName -eq 'update')
+    {
+        $WriteAction = 'Update'
+        $ContentLength = $RangeData.Length
+        if ($CalculateChecksum.IsPresent)
+        {
+            $Hasher = New-Object System.Security.Cryptography.MD5CryptoServiceProvider
+            $Checksum = [System.Convert]::ToBase64String($Hasher.ComputeHash($RangeData))
+        }
+    }
+    else
+    {
+        $WriteAction = 'Clear'
+        $ContentLength = 0
+    }
+    $FileUri = GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $FileUriBld = New-Object System.UriBuilder($FileUri)   
+    $FileUriBld.Path = "$($ShareName)/$($Path.TrimStart('/'))"
+    $FileUriBld.Query='comp=range'
+    $TokenParams = @{
+        Resource    = $FileUriBld.Uri;
+        Verb        = 'PUT';
+        AccessKey   = $AccessKey;
+        ContentType = $ContentType;
+    }    
+    $FileHeaders = [ordered]@{
+        'x-ms-content-length' = $RangeData.Length;
+        'x-ms-date'          = [System.DateTime]::UtcNow.ToString('R');
+        'x-ms-range'         = "bytes=$RangeStart-$($RangeEnd-1)";
+        'x-ms-version'       = $ApiVersion;
+        'x-ms-write'         = $WriteAction;
+    }
+    if ($ContentLength -gt 0)
+    {
+        $TokenParams.Add('ContentLength',$ContentLength)
+    }
+    if ([String]::IsNullOrEmpty($Checksum) -eq $false)
+    {
+        $TokenParams.Add('ContentMD5',$Checksum)
+    }
+    $TokenParams.Add('Headers',$FileHeaders)
+    $StopWatch = New-Object System.Diagnostics.Stopwatch
+    try
+    {
+        $SasToken = New-SharedKeySignature @TokenParams
+        $StopWatch.Start()
+        if ([String]::IsNullOrEmpty($Checksum) -eq $false)
+        {
+            $FileHeaders.Add('Content-MD5',$Checksum)
+        }
+        $FileHeaders.Add("Authorization","SharedKey $($StorageAccountName):$SasToken")
+        $FileHeaders.Add('Content-Length',$ContentLength)
+        $RequestParams = @{
+            Uri           = $FileUriBld.Uri;
+            Method        = 'PUT';
+            Headers       = $FileHeaders;
+            Body          = $RangeData;
+            ReturnHeaders = $true
+        }
+        $Result = InvokeAzureStorageRequest @RequestParams
+        $StopWatch.Stop()
+        Write-Verbose "[Set-AzureFileServiceFileRange] $($FileUriBld.Uri) Page Action:$WriteAction Range:$RangeStart - $RangeEnd bytes succeeded in $($StopWatch.Elapsed.TotalSeconds) secs."
+        Write-Output $Result          
+    }
+    catch
+    {
+        throw $_
+    }
+    finally
+    {
+        $StopWatch.Stop()
+    }
+    Write-Verbose "[Set-AzureFileServiceFileRange] Page Action:$WriteAction $($FileUriBld.Uri) $RangeStart,$RangeEnd"
+
+}
+
 Function Send-AzureFileServiceFile
 {
     [CmdletBinding()]
@@ -3899,16 +4020,20 @@ Function Send-AzureFileServiceFile
         [String]$StorageAccountName,
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
         [String]$ShareName,
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ValueFromPipeline=$true)]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [Switch]$CalculateChecksum,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
         [System.IO.FileInfo[]]$InputObject,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
-        [string]$Destination,
+        [string]$Path,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
         [int]$BufferSize=4096000,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
         [String]$StorageAccountDomain = "file.core.windows.net",
         [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
         [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]        
+        [String]$ContentType='application/octet-stream',
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
         [Switch]$UseHttp,
         [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
@@ -3916,13 +4041,116 @@ Function Send-AzureFileServiceFile
     )
     BEGIN
     {
-
+        $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $FileUriBld=New-Object System.UriBuilder($FileUri)
     }
     PROCESS
     {
         foreach ($item in $InputObject)
         {
             
+            if ([String]::IsNullOrEmpty($Path))
+            {
+                $FileRelativePath=$item.Name
+            }
+            else
+            {
+                $FileRelativePath="$($Path.TrimStart('/'))/$($item.Name)"
+            }
+
+            $FileUriBld.Path="$($ShareName)/$($FileRelativePath)"
+
+            $FileHeaders=[ordered]@{
+                'x-ms-content-length'=$item.Length;            
+                'x-ms-date'=[DateTime]::UtcNow.ToString('R');
+                'x-ms-type'= 'file';                
+                'x-ms-version'=$ApiVersion;
+            }
+
+            $TokenParams=@{
+                Verb="PUT";
+                Headers=$FileHeaders;
+                Resource=$FileUriBld.Uri;
+                AccessKey=$AccessKey;
+                ServiceType='File';
+                ContentType=$ContentType;
+            }
+            if($CalculateChecksum.IsPresent)
+            {
+                Write-Verbose "[Send-AzureFileServiceFile] Calculating MD5 Hash for $($item.Name)"
+                $Checksum=$item|GetMd5Hash  
+                Write-Verbose "[Send-AzureFileServiceFile] Calculated Hash $Checksum"
+                $FileHeaders.Add('x-ms-content-md5',$Checksum)
+                $TokenParams.Add('ContentMD5',$Checksum)
+            }
+
+            $SasToken=New-SharedKeySignature @TokenParams
+            Write-Verbose "[Send-AzureFileServiceFile] Creating File $($FileUriBld.Path)"
+            Write-Progress -Activity "Creating File Service File" -Status "Creating $($item.Name) @ $($FileUriBld.Uri) of size $($item.Length/1MB) MB"           
+            $FileHeaders.Add("Authorization","SharedKey $($StorageAccountName):$SasToken")
+            $FileHeaders.Add('Content-Type',$ContentType)
+            $CreateParams=@{
+                Uri=$FileUriBld.Uri;
+                Method='PUT';
+                Headers=$FileHeaders;
+                ReturnHeaders=$true;
+                ErrorAction='Stop';
+                ContentType=$ContentType;
+            }
+            $Response=InvokeAzureStorageRequest @CreateParams
+            Write-Verbose "[Send-AzureFileServiceFile] Created File $($FileUriBld.Path) $($Response.Headers)"
+            $InputStream=[System.IO.Stream]::Null
+            $Stopwatch=New-Object System.Diagnostics.Stopwatch
+            try
+            {
+                $BytesWritten=0
+                Write-Verbose "[Send-AzureFileServiceFile] Appending File Stream  @ $($FileUriBld.Uri) - Page Size:$($BufferSize/1MB) MB"
+                $Buffer=New-Object System.Byte[]($BufferSize)
+                $InputStream=$item.OpenRead()
+                $BytesRead=$InputStream.Read($Buffer,$BytesWritten,$BufferSize)
+                while ($BytesRead -gt 0)
+                {
+                    $Stopwatch.Start()
+                    $RangeStart=$BytesWritten
+                    $BytesWritten+=$BytesRead
+                    $Page=$Buffer[0..$($BytesRead-1)]
+                    #Set the file 'page'
+                    $PutParams=@{
+                        RangeData=$Page;
+                        StorageAccountName=$StorageAccountName;
+                        StorageAccountDomain=$StorageAccountDomain;
+                        Path=$FileRelativePath;
+                        ShareName=$ShareName;
+                        AccessKey=$AccessKey;
+                        ApiVersion=$ApiVersion;
+                        UseHttp=$UseHttp;
+                        CalculateChecksum=$CalculateChecksum;
+                        RangeStart=$RangeStart;
+                        RangeEnd=$BytesWritten;
+                        ContentType=$ContentType;
+                    }
+                    $PutPageResult=Set-AzureFileServiceFileRange @PutParams                   
+                    $Speed=[Math]::Round($BytesWritten/1MB/$Stopwatch.Elapsed.TotalSeconds,2)
+                    $Stopwatch.Stop()
+                    Write-Verbose "[Send-AzureFileServiceFile] ETag:$($PutPageResult.ETag) Transfer-Encoding:$($PutPageResult.'Transfer-Encoding') Request Id:$($PutPageResult.'x-ms-request-id')"
+                    Write-Progress -Activity "Creating File Service File" -Status "Updating $($FileUriBld.Uri) $([Math]::Round($BytesWritten/1MB)) MB written - ($Speed mb/s)" -PercentComplete $($BytesWritten/$item.Length * 100)
+                    $BytesRead=$InputStream.Read($Buffer,0,$BufferSize)                                       
+                }
+            }
+            catch
+            {
+                throw $_
+            }
+            finally
+            {
+                $Stopwatch.Stop()
+                Write-Progress -Activity "Creating File Service File" -Completed
+                if($InputStream -ne $null)
+                {
+                    $InputStream.Dispose()
+                }
+            }
+
         }
     }
 }
