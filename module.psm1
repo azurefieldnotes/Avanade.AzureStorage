@@ -124,7 +124,7 @@ Function GetTokenStringToSign
         {
             $SigningPieces+="$($item):$($Headers[$item])"
         }
-        $SigningPieces+="/$ResourceBase/$ResourcePath"
+        $SigningPieces+="/$ResourceBase/$($ResourcePath.Replace(' ','%20'))"
 
         if ([String]::IsNullOrEmpty($Resource.Query) -eq $false)
         {
@@ -3455,6 +3455,289 @@ Function Remove-AzureBlob
             Write-Output $Result
         }
     }
+}
+
+#endregion
+
+#region File Service
+
+Function Get-AzureFileServiceProperties
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "file.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+
+    $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $FileUriBld=New-Object System.UriBuilder($FileUri)
+    $FileUriBld.Query = "restype=service&comp=properties"
+    $RequestParams=@{
+        Uri=$FileUriBld.Uri;
+        Method='GET';
+        ExpandProperty='StorageServiceProperties'
+    }
+    $FileHeaders = [ordered]@{
+        'x-ms-date'=[DateTime]::UtcNow.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $TokenParams=@{
+        Verb="GET";
+        Resource=$FileUriBld.Uri;
+        AccessKey=$AccessKey;
+        Headers=$FileHeaders;
+        ServiceType='File';
+    }
+    $SasToken = New-SharedKeySignature @TokenParams
+    $FileHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $RequestParams.Add('Headers',$FileHeaders)
+    $FileResult=InvokeAzureStorageRequest @RequestParams
+    Write-Output $FileResult
+}
+
+Function Get-AzureFileServiceShare
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "file.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+
+    $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $FileUriBld=New-Object System.UriBuilder($FileUri)
+    $FileUriBld.Query = "comp=list"
+    $FileHeaders = [ordered]@{
+        "x-ms-date" = [DateTime]::UtcNow.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $TokenParams=@{
+        Verb="GET";
+        Resource=$FileUriBld.Uri;
+        AccessKey=$AccessKey;
+        Headers=$FileHeaders;
+        ServiceType='File';
+    }
+    $SasToken = New-SharedKeySignature @TokenParams    
+    $FileHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $FileParams=@{
+        Uri=$FileUriBld.Uri;
+        Method='GET';
+        Headers=$FileHeaders;
+    }    
+    $Result = InvokeAzureStorageRequest @FileParams|Select-Object -ExpandProperty EnumerationResults
+    Write-Verbose "[Get-AzureFileShare] File Response Endpoint:$($Result.ServiceEndpoint)"
+    if($Result -ne $null -and $Result.Shares -ne $null)
+    {
+        foreach ($item in $Result.Shares.Share)
+        {
+            Write-Output $item
+        }
+    }
+}
+
+Function Get-AzureFileServiceChildItem
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$ShareName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$Path,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "file.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$Recurse,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    PROCESS
+    {
+        $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+        $FileUriBld=New-Object System.UriBuilder($FileUri)
+        if(-not [string]::IsNullOrEmpty($Path))
+        {
+            $FileUriBld.Path="$ShareName/$($Path.TrimStart('/'))"
+        }
+        else
+        {
+            $FileUriBld.Path=$ShareName
+        }
+        $FileUriBld.Query="restype=directory&comp=list"
+        $TokenParams=@{
+            Verb='GET';
+            Resource=$FileUriBld.Uri;
+            Headers=@{
+                "x-ms-date"=[DateTime]::UtcNow.ToString('R');
+                "x-ms-version"=$ApiVersion;
+            };
+            AccessKey=$AccessKey;
+            ServiceType='File';
+        }
+        Write-Verbose "[Get-AzureFileServiceChildItem] Creating SAS Token for $($FileUriBld.Uri)"
+        $SasToken=New-SharedKeySignature  @TokenParams
+        $FileParams=@{
+            Uri=$FileUriBld.Uri;
+            Method='Get';
+            Headers=@{};
+            ExpandProperty='EnumerationResults';
+        }        
+        $TokenParams.Headers.Keys|ForEach-Object{$FileParams.Headers[$_]=$TokenParams.Headers[$_]}
+        $FileParams.Headers.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+        $FileResult=InvokeAzureStorageRequest @FileParams
+        if($FileResult.Entries -ne $null)
+        {
+            $DirectoryNames=@()
+            foreach ($DirEntry in $FileResult.Entries.Directory)
+            {
+                $DirectoryNames+=$DirEntry.Name
+                $DirResult=New-Object PSObject -Property @{
+                    Name=$DirEntry.Name;
+                    Path=$FileUriBld.Path;
+                    Properties=$DirEntry.Properties;
+                    IsContainer=$true;
+                }
+                Write-Output $DirResult
+            }
+            foreach ($FileEntry in $FileResult.Entries.File)
+            {
+                $FileResult=New-Object PSObject -Property @{
+                    Name=$FileEntry.Name;
+                    Path=$FileUriBld.Path;
+                    Properties=$FileEntry.Properties;
+                    IsContainer=$false;
+                }
+                Write-Output $FileResult
+            }
+            $HasMore=-not [String]::IsNullOrEmpty($FileResult.NextMarker)
+            while ($HasMore)
+            {
+                #Set the marker in the URI
+                Write-Verbose "[Get-AzureFileServiceChildItem] Next set available @ $($FileUriBld.Uri)"
+                $FileUriBld.Query="restype=directory&comp=list&marker=$($FileResult.NextMarker)"
+                $FileParams.Uri=$FileUriBld.Uri
+                $TokenParams.Resource=$FileUriBld.Uri
+                Write-Verbose "[Get-AzureFileServiceChildItem] Creating SAS Token for $($FileUriBld.Uri)"
+                $SasToken=New-SharedKeySignature  @TokenParams        
+                $FileParams.Headers['Authorization']="SharedKey $($StorageAccountName):$($SasToken)"
+                $FileResult=InvokeAzureStorageRequest @FileParams
+                if($FileResult.Entries -ne $null)
+                {
+                    foreach ($DirEntry in $FileResult.Entries.Directory)
+                    {
+                        $DirectoryNames+=$DirEntry.Name
+                        $DirResult=New-Object PSObject -Property @{
+                            Name=$DirEntry.Name;
+                            Path=$FileUriBld.Path;
+                            Properties=$DirEntry.Properties;
+                            IsContainer=$true;
+                        }
+                        Write-Output $DirResult
+                    }
+                    foreach ($FileEntry in $FileResult.Entries.File)
+                    {
+                        $FileResult=New-Object PSObject -Property @{
+                            Name=$FileEntry.Name;
+                            Path=$FileUriBld.Path;
+                            Properties=$FileEntry.Properties;
+                            IsContainer=$false;
+                        }
+                        Write-Output $FileResult
+                    }
+                }
+                $HasMore=-not [String]::IsNullOrEmpty($FileResult.NextMarker)
+            }
+            if($Recurse.IsPresent)
+            {
+                foreach ($DirectoryName in $DirectoryNames)
+                {
+                    $ChildPath="$($Path.TrimEnd('/'))/$($DirectoryName)"
+                    Write-Verbose "[Get-AzureFileServiceChildItem] Recursing $ChildPath"
+                    $ChildParams=@{
+                        StorageAccountName=$StorageAccountName;
+                        ShareName=$ShareName;
+                        StorageAccountDomain=$StorageAccountDomain;
+                        ApiVersion=$ApiVersion;
+                        AccessKey=$AccessKey;
+                        Path=$ChildPath;
+                        UseHttp=$UseHttp.IsPresent;
+                        Recurse=$Recurse.IsPresent;
+                    }
+                    $SubResult=Get-AzureFileServiceChildItem @ChildParams
+                    Write-Output $SubResult
+                }
+            }
+        }                             
+    }
+}
+
+Function Get-AzureFileServiceShareStats
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$ShareName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "file.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $FileUriBld=New-Object System.UriBuilder($FileUri)
+    $FileUriBld.Path=$ShareName
+    $FileUriBld.Query = "restype=share&comp=stats"
+    $FileHeaders = [ordered]@{
+        'x-ms-date'=[DateTime]::UtcNow.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $TokenParams=@{
+        Verb="GET";
+        Resource=$FileUriBld.Uri;
+        AccessKey=$AccessKey;
+        Headers=$FileHeaders;
+        ServiceType='File'
+    }
+    $SasToken = New-SharedKeySignature @TokenParams
+    $FileParams=@{
+        Uri=$FileUriBld.Uri;
+        Method='GET';
+        ExpandProperty='ShareStats'
+    }    
+    $FileHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $FileParams.Add('Headers',$FileHeaders)
+    $FileResult=InvokeAzureStorageRequest @FileParams
+    Write-Output $FileResult
 }
 
 #endregion
