@@ -3,7 +3,7 @@
 $Script:UTF8ByteOrderMark=[System.Text.Encoding]::Default.GetString([System.Text.Encoding]::UTF8.GetPreamble())
 
 #Permissions - QUERY: 'r',ADD: 'a',UPDATE: 'u',DELETE: 'd'
-$Script:TableAclTemplate=@"
+$Script:AclTemplate=@"
 <SignedIdentifier>   
 <Id>{0}</Id>  
 <AccessPolicy>  
@@ -13,7 +13,7 @@ $Script:TableAclTemplate=@"
 </AccessPolicy>  
 </SignedIdentifier>
 "@
-$Script:TableAclRequestTemplate=@"
+$Script:AclRequestTemplate=@"
 <?xml version="1.0" encoding="utf-8"?>  
 <SignedIdentifiers>  
   {0}
@@ -961,7 +961,7 @@ Function Set-AzureTableACL
     $AclId=[Convert]::ToBase64String(([Guid]::NewGuid()).ToByteArray())
     $StartTime=$Start.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fffffffK")
     $EndTime=$Expiry.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fffffffK")
-    $AclBody=$Script:TableAclRequestTemplate -f  $($Script:TableAclTemplate -f $AclId,$Acl,$StartTime,$EndTime)
+    $AclBody=$Script:AclRequestTemplate -f  $($Script:AclTemplate -f $AclId,$Acl,$StartTime,$EndTime)
     Write-Verbose "[Set-AzureTableACL] Creating ACL $AclId for $TableUri $AclBody"
     $RequestParams=@{
         Uri=$TableUriBld.Uri;
@@ -3808,6 +3808,153 @@ Function Get-AzureFileServiceShareStats
     }
     $FileResult=InvokeAzureStorageRequest @FileParams
     Write-Output $FileResult
+}
+
+<#
+    .SYNOPSIS
+        Retrieves the ACL for the specified share
+    .DESCRIPTION
+        Retrieves the ACL for the specified share
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ShareName
+        The share name
+    .PARAMETER AccessKey    
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage service API version
+#>
+Function Get-AzureFileServiceShareAcl
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$ShareName,        
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "file.core.windows.net",
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+    $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $FileUriBld=New-Object System.UriBuilder($FileUri)
+    $FileUriBld.Path=$ShareName
+    $FileUriBld.Query = "restype=share&comp=acl"
+    $FileHeaders = [ordered]@{
+        'x-ms-date'=[DateTime]::UtcNow.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $TokenParams=@{
+        Verb="GET";
+        Resource=$FileUriBld.Uri;
+        AccessKey=$AccessKey;
+        Headers=$FileHeaders;
+        ServiceType='File'
+    }
+    $SasToken = New-SharedKeySignature @TokenParams
+    $FileHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $FileParams=@{
+        Uri=$FileUriBld.Uri;
+        Method='GET';
+        ExpandProperty='SignedIdentifiers'
+        Headers=$FileHeaders;
+    }
+    $FileResult=InvokeAzureStorageRequest @FileParams
+    Write-Output $FileResult
+}
+
+<#
+    .SYNOPSIS
+        Set the public access control for a blob container
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ShareName
+        The name of the share
+    .PARAMETER Acl
+        The acl to be applied
+    .PARAMETER AccessKey
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The version of the BLOB service API
+    .PARAMETER AccessLevel
+        The public access level for the container
+#>
+Function Set-AzureFileServiceShareAcl
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountName,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$ShareName,
+        [Parameter(ValueFromPipeline=$true,Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [ValidateLength(1,4)]
+        [ValidateSet('r','a','w','d','ra','rw','rwd','rd','raw','rad','rawd','au','awd','ad','wd')]
+        [String]$Acl,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AclId=[Convert]::ToBase64String(([Guid]::NewGuid()).ToByteArray()),
+        [Parameter(ValueFromPipeline=$true,Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [System.DateTime]$Start=[DateTime]::UtcNow,
+        [Parameter(ValueFromPipeline=$true,Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [System.DateTime]$Expiry=($Start.AddDays(365)),
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$StorageAccountDomain = "file.core.windows.net",
+        [ValidateSet('container','blob','private')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessLevel,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [String]$AccessKey,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Switch]$UseHttp,
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [String]$ApiVersion = "2016-05-31"
+    )
+
+    $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
+    $FileUriBld=New-Object System.UriBuilder($FileUri)
+    $FileUriBld.Path = "$ShareName"
+    $FileUriBld.Query = "restype=share&comp=acl"
+    $FileHeaders = [ordered]@{
+        "x-ms-date" = [datetime]::UtcNow.ToString('R');
+        "x-ms-version" = $ApiVersion;
+    }
+    $TokenParams=@{
+        Verb="PUT";
+        Resource=$FileUriBld.Uri;
+        AccessKey=$AccessKey;
+        Headers=$FileHeaders;
+    }
+    $SasToken = New-SharedKeySignature @TokenParams
+    $BlobHeaders.Add("Authorization","SharedKey $($StorageAccountName):$($SasToken)")
+    $StartTime=$Start.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fffffffK")
+    $EndTime=$Expiry.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fffffffK")
+    $AclBody=$Script:AclRequestTemplate -f  $($Script:AclTemplate -f $AclId,$Acl,$StartTime,$EndTime)
+
+    $RequestParams=@{
+        Uri=$FileUriBld.Uri;
+        Method='PUT';
+        ReturnHeaders=$true;
+        Headers=$FileHeaders;
+        Body=$AclBody;
+        ContentType='application/xml'
+    }
+    $Result = InvokeAzureStorageRequest @RequestParams
+    Write-Output $Result
 }
 
 <#
