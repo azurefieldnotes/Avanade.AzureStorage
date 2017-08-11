@@ -4029,7 +4029,7 @@ Function Receive-AzureFileServiceFile
                 $DestinationFile=Join-Path $Destination $item.Name
                 $DownloadUriBld=New-Object System.UriBuilder($FileUri)
                 $ItemFileName="$($item.Path.TrimStart('/').TrimEnd('/'))/$($item.Name)"
-                $DownloadUriBld.Path="$($ShareName)/$($ItemFileName)"
+                $DownloadUriBld.Path="$($ShareName.ToLower())/$($ItemFileName)"
                 Write-Verbose "[Receive-AzureFileServiceFile] Requesting Azure File Service File $ShareName/$ItemFileName from Storage Account:$StorageAccountName"
                 $TokenParams=@{
                     Verb="GET";
@@ -4057,7 +4057,7 @@ Function Receive-AzureFileServiceFile
             {
                 $DestinationFile=Join-Path $Destination $(Split-Path $item -Leaf)
                 $DownloadUriBld=New-Object System.UriBuilder($FileUri)
-                $DownloadUriBld.Path="$($ShareName)/$($item.TrimStart('/'))"
+                $DownloadUriBld.Path="$($ShareName.ToLower())/$($item.TrimStart('/'))"
                 Write-Verbose "[Receive-AzureFileServiceFile] Requesting Azure File Service File $ShareName/$item from Storage Account:$StorageAccountName"
                 $TokenParams=@{
                     Verb="GET";
@@ -4145,8 +4145,7 @@ Function Send-AzureFileServiceFile
     PROCESS
     {
         foreach ($item in $InputObject)
-        {
-            
+        {         
             if ([String]::IsNullOrEmpty($Path))
             {
                 $FileRelativePath=$item.Name
@@ -4156,7 +4155,7 @@ Function Send-AzureFileServiceFile
                 $FileRelativePath="$($Path.TrimStart('/'))/$($item.Name)"
             }
 
-            $FileUriBld.Path="$($ShareName)/$($FileRelativePath)"
+            $FileUriBld.Path="$($ShareName.ToLower())/$($FileRelativePath)"
 
             $FileHeaders=[ordered]@{
                 'x-ms-content-length'=$item.Length;            
@@ -4248,7 +4247,6 @@ Function Send-AzureFileServiceFile
                     $InputStream.Dispose()
                 }
             }
-
         }
     }
 }
@@ -4287,7 +4285,7 @@ Function Remove-AzureFileServiceFile
         foreach ($item in $Path)
         {
             $FileUriBld=New-Object System.UriBuilder($FileUri)
-            $FileUriBld.Path="$($ShareName)/$($Path.TrimStart('/'))"
+            $FileUriBld.Path="$($ShareName.ToLower())/$($Path.TrimStart('/'))"
             Write-Verbose "[Remove-AzureFileServiceFile] Removing Azure File Service File $ShareName/$item from Storage Account:$StorageAccountName"
             $TokenParams=@{
                 Verb="DELETE";
@@ -4372,7 +4370,7 @@ Function Set-AzureFileServiceFileRange
     }
     $FileUri = GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
     $FileUriBld = New-Object System.UriBuilder($FileUri)   
-    $FileUriBld.Path = "$($ShareName)/$($Path.TrimStart('/'))"
+    $FileUriBld.Path = "$($ShareName.ToLower())/$($Path.TrimStart('/'))"
     $FileUriBld.Query='comp=range'
     $TokenParams = @{
         Resource    = $FileUriBld.Uri;
@@ -4483,7 +4481,7 @@ Function New-AzureFileServiceShare
     {
         foreach ($item in $ShareName)
         {
-            $FileUriBld.Path="$item"
+            $FileUriBld.Path=$item.ToLower()
             $TokenParams=@{
                 Verb="PUT";
                 Resource=$FileUriBld.Uri;
@@ -4557,7 +4555,7 @@ Function Remove-AzureFileServiceShare
     {
         foreach ($item in $ShareName)
         {
-            $FileUriBld.Path="$item"
+            $FileUriBld.Path=$item.ToLower()
             $TokenParams=@{
                 Verb="DELETE";
                 Resource=$FileUriBld.Uri;
@@ -4636,33 +4634,33 @@ Function New-AzureFileServiceDirectory
     }
     PROCESS
     {
-            if ([String]::IsNullOrEmpty($Path))
-            {
-                $RelativePath=$Name
-            }
-            else
-            {
-                $RelativePath="$($Path.TrimStart('/'))/${Name}"
-            }
-            $FileUriBld.Path="${ShareName}/${RelativePath}"
-            $TokenParams=@{
-                Verb="PUT";
-                Resource=$FileUriBld.Uri;
-                AccessKey=$AccessKey;
-                Headers=$FileHeaders;
-                ContentType='application/octet-stream'
-            }
-            $SasToken=New-SharedKeySignature @TokenParams
-            $FileHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($SasToken)")
-            $NewDirParams=@{
-                Uri=$FileUriBld.Uri;
-                Headers=$FileHeaders;
-                Method='PUT';
-                ReturnHeaders=$true;
-                ContentType='application/octet-stream'
-            }
-            $Result=InvokeAzureStorageRequest @NewDirParams
-            Write-Output $Result            
+        if ([String]::IsNullOrEmpty($Path))
+        {
+            $RelativePath=$Name
+        }
+        else
+        {
+            $RelativePath="$($Path.TrimStart('/'))/${Name}"
+        }
+        $FileUriBld.Path="$($ShareName.ToLower())/${RelativePath}"
+        $TokenParams=@{
+            Verb="PUT";
+            Resource=$FileUriBld.Uri;
+            AccessKey=$AccessKey;
+            Headers=$FileHeaders;
+            ContentType='application/octet-stream'
+        }
+        $SasToken=New-SharedKeySignature @TokenParams
+        $FileHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($SasToken)")
+        $NewDirParams=@{
+            Uri=$FileUriBld.Uri;
+            Headers=$FileHeaders;
+            Method='PUT';
+            ReturnHeaders=$true;
+            ContentType='application/octet-stream'
+        }
+        $Result=InvokeAzureStorageRequest @NewDirParams
+        Write-Output $Result            
     }
 }
 
