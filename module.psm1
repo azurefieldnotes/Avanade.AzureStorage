@@ -3828,6 +3828,7 @@ Function Get-AzureFileServiceShareStats
     .PARAMETER UseHttp
         Use Insecure requests 
     .PARAMETER ApiVersion
+        The storage service API version
 #>
 Function Receive-AzureFileServiceFile
 {
@@ -3891,6 +3892,32 @@ Function Receive-AzureFileServiceFile
 
 }
 
+<#
+    .SYNOPSIS
+        Copies a file to an Azure File Share
+    .DESCRIPTION
+        Copies a file to an Azure File Share
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER CalculateChecksum
+        Whether to calculate an MD5 checksum
+    .PARAMETER InputObject
+        The file(s) to be uploaded
+    .PARAMETER BufferSize
+        The size of the upload buffer
+    .PARAMETER Path
+        The item path
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ShareName
+        The share name
+    .PARAMETER AccessKey    
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage service API version
+#>
 Function Send-AzureFileServiceFile
 {
     [CmdletBinding()]
@@ -4213,6 +4240,26 @@ Function Set-AzureFileServiceFileRange
 
 }
 
+<#
+    .SYNOPSIS
+        Creates a new Azure File Service Share
+    .DESCRIPTION
+        Creates a new Azure File Service Share
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER ShareName
+        The Share name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ShareName
+        The share name
+    .PARAMETER AccessKey    
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage service API version
+#>
 Function New-AzureFileServiceShare
 {
     [CmdletBinding()]
@@ -4266,6 +4313,26 @@ Function New-AzureFileServiceShare
     }
 }
 
+<#
+    .SYNOPSIS
+        Removes an Azure File Service Share
+    .DESCRIPTION
+        Removes an Azure File Service Share
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER ShareName
+        The Share name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ShareName
+        The share name
+    .PARAMETER AccessKey    
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage service API version
+#>
 Function Remove-AzureFileServiceShare
 {
     [CmdletBinding()]
@@ -4320,6 +4387,30 @@ Function Remove-AzureFileServiceShare
     }   
 }
 
+<#
+    .SYNOPSIS
+        Creates a new directory in an Azure File Service Share
+    .DESCRIPTION
+        Creates a new directory in an Azure File Service Share
+    .PARAMETER StorageAccountName
+        The storage account name
+    .PARAMETER Path
+        The parent directory path
+    .PARAMETER ShareName
+        The Share name
+    .PARAMETER Name
+        The directory name
+    .PARAMETER StorageAccountDomain
+        The FQDN for the storage account service
+    .PARAMETER ShareName
+        The share name
+    .PARAMETER AccessKey    
+        The storage service access key
+    .PARAMETER UseHttp
+        Use Insecure requests 
+    .PARAMETER ApiVersion
+        The storage service API version
+#>
 Function New-AzureFileServiceDirectory
 {
     [CmdletBinding()]
