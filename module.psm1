@@ -3647,6 +3647,7 @@ Function Get-AzureFileServiceChildItem
                 "x-ms-date"=[DateTime]::UtcNow.ToString('R');
                 "x-ms-version"=$ApiVersion;
             };
+            ContentType='application/octet-stream'
             AccessKey=$AccessKey;
             ServiceType='File';
         }
@@ -3979,61 +3980,104 @@ Function Set-AzureFileServiceShareAcl
 #>
 Function Receive-AzureFileServiceFile
 {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName='fileinfo')]
     param
     (
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='fileinfo')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String]$StorageAccountName,
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='fileinfo')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String]$ShareName,
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String[]]$Path,
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ValueFromPipeline=$true,ParameterSetName='fileinfo')]
+        [Object[]]$File,
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='fileinfo')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [string]$Destination=$env:TEMP,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='fileinfo')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [int]$BufferSize=4096000,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='fileinfo')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String]$StorageAccountDomain = "file.core.windows.net",
-        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='fileinfo')]
+        [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String]$AccessKey,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true)]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='fileinfo')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName=$true,ParameterSetName='default')]
         [Switch]$UseHttp,
-        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true)]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='fileinfo')]
+        [Parameter(Mandatory = $false,ValueFromPipelineByPropertyName = $true,ParameterSetName='default')]
         [String]$ApiVersion = "2016-05-31"
     )
     BEGIN
     {
-        $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent
-        $FileHeaders=@{
-            'x-ms-date'=[DateTime]::UtcNow.ToString('R');
-            'x-ms-version'=$ApiVersion;
-        }     
+        $FileUri=GetStorageUri -AccountName $StorageAccountName -StorageServiceFQDN $StorageAccountDomain -IsInsecure $UseHttp.IsPresent        
     }
     PROCESS
     {
-        foreach ($item in $Path)
+        $FileHeaders=@{
+            'x-ms-date'=[DateTime]::UtcNow.ToString('R');
+            'x-ms-version'=$ApiVersion;
+        }
+        if($PSCmdlet.ParameterSetName -eq 'fileinfo')
         {
-            $DestinationFile=Join-Path $Destination $(Split-Path $item -Leaf)
-            $DownloadUriBld=New-Object System.UriBuilder($FileUri)
-            $DownloadUriBld.Path="$($ShareName)/$($Path.TrimStart('/'))"
-            Write-Verbose "[Receive-AzureFileServiceFile] Requesting Azure File Service File $ShareName/$item from Storage Account:$StorageAccountName"
-            $TokenParams=@{
-                Verb="GET";
-                Resource=$DownloadUriBld.Uri;
-                AccessKey=$AccessKey;
-                Headers=$FileHeaders;
-                ServiceType='File';
+            foreach ($item in $File)
+            {
+                $DestinationFile=Join-Path $Destination $item.Name
+                $DownloadUriBld=New-Object System.UriBuilder($FileUri)
+                $ItemFileName="$($item.Path.TrimStart('/').TrimEnd('/'))/$($item.Name)"
+                $DownloadUriBld.Path="$($ShareName)/$($ItemFileName)"
+                Write-Verbose "[Receive-AzureFileServiceFile] Requesting Azure File Service File $ShareName/$ItemFileName from Storage Account:$StorageAccountName"
+                $TokenParams=@{
+                    Verb="GET";
+                    Resource=$DownloadUriBld.Uri;
+                    AccessKey=$AccessKey;
+                    Headers=$FileHeaders;
+                    ServiceType='File';
+                }
+                $SasToken=New-SharedKeySignature @TokenParams
+                $FileHeaders['Authorization']="SharedKey $($StorageAccountName):$($SasToken)"
+                $DownloadParams=@{
+                    Uri=$DownloadUriBld.Uri;
+                    Destination=$DestinationFile;
+                    BufferSize=$BufferSize;
+                    Headers=$FileHeaders
+                }
+                Write-Verbose "[Receive-AzureFileServiceFile] Beginning Download $($DownloadUriBld.Uri)->$DestinationFile"
+                DownloadBlob @DownloadParams
+                Start-Sleep -Milliseconds 100
             }
-            $SasToken=New-SharedKeySignature @TokenParams
-            $FileHeaders.Add('Authorization',"SharedKey $($StorageAccountName):$($SasToken)")
-            $DownloadParams=@{
-                Uri=$DownloadUriBld.Uri;
-                Destination=$DestinationFile;
-                BufferSize=$BufferSize;
-                Headers=$FileHeaders
+        }
+        else
+        {
+            foreach ($item in $Path)
+            {
+                $DestinationFile=Join-Path $Destination $(Split-Path $item -Leaf)
+                $DownloadUriBld=New-Object System.UriBuilder($FileUri)
+                $DownloadUriBld.Path="$($ShareName)/$($item.TrimStart('/'))"
+                Write-Verbose "[Receive-AzureFileServiceFile] Requesting Azure File Service File $ShareName/$item from Storage Account:$StorageAccountName"
+                $TokenParams=@{
+                    Verb="GET";
+                    Resource=$DownloadUriBld.Uri;
+                    AccessKey=$AccessKey;
+                    Headers=$FileHeaders;
+                    ServiceType='File';
+                }
+                $SasToken=New-SharedKeySignature @TokenParams
+                $FileHeaders['Authorization']="SharedKey $($StorageAccountName):$($SasToken)"
+                $DownloadParams=@{
+                    Uri=$DownloadUriBld.Uri;
+                    Destination=$DestinationFile;
+                    BufferSize=$BufferSize;
+                    Headers=$FileHeaders
+                }
+                Write-Verbose "[Receive-AzureFileServiceFile] Beginning Download $($DownloadUriBld.Uri)->$DestinationFile"
+                DownloadBlob @DownloadParams
+                Start-Sleep -Milliseconds 100
             }
-            Write-Verbose "[Receive-AzureFileServiceFile] Beginning Download $($DownloadUriBld.Uri)->$DestinationFile"
-            DownloadBlob @DownloadParams
         }
     }
 
